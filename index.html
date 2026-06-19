@@ -211,6 +211,9 @@ const state = {
   clockMin: 720,                // Minuten seit Mitternacht (lokale Zeit)
   headingOffsetDeg: 0,          // manuelle Nord-Feinjustierung
   area: 7.1, height: 2.4, tiltDeg: 0, tiltDirDeg: 0,
+  shape: "rect",                // "round" | "rect"
+  L: 4.0, B: 2.0,               // Rechteck-Länge/-Breite (m)
+  yawDeg: 0,                    // Drehung der Längsachse
   compassHeading: null,         // webkitCompassHeading, falls verfügbar
   screenAngle: 0,
 };
@@ -278,29 +281,48 @@ const canopyMat = new THREE.MeshStandardMaterial({ color: 0xd64b3f, roughness: .
 const canopy = new THREE.Mesh(new THREE.ConeGeometry(1, 0.32, 8), canopyMat);
 canopy.castShadow = true;
 tiltPivot.add(canopy);
+const canopyRound = canopy; // Alias für Klarheit
+// Rechteckiges Dach: flacher Quader, L entlang X, B entlang Z
+const canopyRect = new THREE.Mesh(new THREE.BoxGeometry(1, 0.08, 1), canopyMat);
+canopyRect.castShadow = true;
+tiltPivot.add(canopyRect);
 // kleiner Mittelknauf
 const finial = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10),
   new THREE.MeshStandardMaterial({ color: 0x2a2d33 }));
 tiltPivot.add(finial);
 
 function rebuildParasol() {
-  const radius = Math.sqrt(state.area / Math.PI);   // Fläche -> Radius
   const h = state.height;
   // Mast
   pole.scale.set(1, h, 1);
   pole.position.set(0, h / 2, 0);
   // Pivot oben am Mast
   tiltPivot.position.set(0, h, 0);
-  // Dach skalieren (Radius + leicht proportionale Wölbung)
-  canopy.scale.set(radius, 1 + radius * 0.18, radius);
-  canopy.position.set(0, 0.16 * (1 + radius * 0.18), 0);
-  finial.position.set(0, 0.34 * (1 + radius * 0.18), 0);
-  // Neigung: erst Richtung (um Welt-Y), dann Kippen (um X)
+
+  const isRect = state.shape === "rect";
+  canopyRound.visible = !isRect;
+  canopyRect.visible = isRect;
+  finial.visible = !isRect;
+
+  if (isRect) {
+    // L entlang X, B entlang Z
+    canopyRect.scale.set(state.L, 1, state.B);
+    canopyRect.position.set(0, 0.04, 0);
+  } else {
+    const radius = Math.sqrt(state.area / Math.PI);   // Fläche -> Radius
+    canopyRound.scale.set(radius, 1 + radius * 0.18, radius);
+    canopyRound.position.set(0, 0.16 * (1 + radius * 0.18), 0);
+    finial.position.set(0, 0.34 * (1 + radius * 0.18), 0);
+  }
+
+  // Reihenfolge am Mastkopf: Yaw → Neigungsrichtung → Neigungswinkel
+  const yaw = (isRect ? state.yawDeg : 0) * DEG;
   const dir = state.tiltDirDeg * DEG;
   const ang = state.tiltDeg * DEG;
+  const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
   const qDir = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dir);
   const qTip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ang);
-  tiltPivot.quaternion.copy(qDir).multiply(qTip);
+  tiltPivot.quaternion.copy(qYaw).multiply(qDir).multiply(qTip);
 }
 
 /* -------------------------------------------------------------------------
