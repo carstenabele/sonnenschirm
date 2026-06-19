@@ -27,7 +27,10 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
     /// Request authorisation and begin location updates.
     func start() {
         manager.requestWhenInUseAuthorization()
-        manager.startUpdatingLocation()
+        // Only start updating if already authorized (covers app restart case).
+        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
     }
 
     // MARK: - CLLocationManagerDelegate
@@ -42,5 +45,12 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Retain Frankfurt fallback; no user-visible error needed at this layer.
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        // Start location updates once the user grants permission.
+        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
     }
 }
