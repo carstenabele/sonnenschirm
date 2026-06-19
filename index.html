@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Schattenwerfer — Sonnenschirm-Simulator</title>
+<style>
+  :root{
+    --ink:#0B0F14;
+    --panel:rgba(11,15,20,.66);
+    --panel-solid:#0B0F14;
+    --line:rgba(255,255,255,.14);
+    --line-strong:rgba(255,255,255,.28);
+    --text:#EAF0F6;
+    --muted:#9DB0C2;
+    --sun:#FFB627;        /* warmes Sonnen-Amber */
+    --sun-hot:#FF7A18;    /* tiefe Höhe / Akzent */
+    --shade:#7FA6D6;      /* kühles Schatten-Blau */
+    --ok:#7BD88F;
+    --bad:#FF6B6B;
+    --mono: ui-monospace, "SF Mono", "Menlo", "Roboto Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;color:var(--text);font-family:var(--sans);-webkit-tap-highlight-color:transparent}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#111;z-index:0}
+  #scene{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+
+  /* zentrales Fadenkreuz */
+  #reticle{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;pointer-events:none;opacity:.5}
+  #reticle::before,#reticle::after{content:"";position:absolute;background:rgba(255,255,255,.7)}
+  #reticle::before{left:-11px;top:-1px;width:22px;height:2px}
+  #reticle::after{left:-1px;top:-11px;width:2px;height:22px}
+
+  /* ---- HUD oben ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:5;padding:max(10px,env(safe-area-inset-top)) 12px 10px;
+    display:flex;gap:10px;align-items:flex-start;justify-content:space-between;
+    background:linear-gradient(to bottom, rgba(11,15,20,.78), rgba(11,15,20,0))}
+  .brand{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .brand .name{font-weight:650;letter-spacing:.02em;font-size:14px}
+  .brand .sub{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.04em}
+  .readouts{display:flex;gap:14px;font-family:var(--mono)}
+  .ro{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+  .ro .k{font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+  .ro .v{font-size:15px;font-variant-numeric:tabular-nums;line-height:1}
+  .ro .v.sun{color:var(--sun)}
+  .ro .v.shade{color:var(--shade)}
+
+  /* ---- Sonnen-Kompass (Signature) ---- */
+  #compass{position:fixed;z-index:5;top:max(64px,calc(env(safe-area-inset-top) + 56px));left:12px;width:96px;height:96px;
+    pointer-events:none;filter:drop-shadow(0 4px 14px rgba(0,0,0,.5))}
+
+  /* ---- HUD unten: Regler ---- */
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:14px 14px max(14px,env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(11,15,20,.82) 60%, rgba(11,15,20,0));pointer-events:auto}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;max-width:560px;margin:0 auto}
+  .ctrl{display:flex;flex-direction:column;gap:5px}
+  .ctrl .row{display:flex;justify-content:space-between;align-items:baseline}
+  .ctrl label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .ctrl .val{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:3px;background:var(--line-strong)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:3px;background:var(--line-strong)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;margin-top:-9px;width:20px;height:20px;border-radius:50%;
+    background:var(--sun);border:2px solid #1a1206;box-shadow:0 1px 6px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px;border:2px solid #1a1206;border-radius:50%;background:var(--sun)}
+  input.shade-thumb::-webkit-slider-thumb{background:var(--shade);border-color:#0a141f}
+  input.shade-thumb::-moz-range-thumb{background:var(--shade);border-color:#0a141f}
+
+  .dockbar{display:flex;gap:8px;max-width:560px;margin:0 auto 10px;align-items:center}
+  .chip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--text);background:rgba(255,255,255,.08);
+    border:1px solid var(--line);border-radius:999px;padding:6px 11px;display:inline-flex;gap:6px;align-items:center}
+  .chip b{font-weight:600;color:var(--sun)}
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--text);background:rgba(255,255,255,.07);
+    border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer}
+  .btn:active{transform:translateY(1px)}
+  .btn.sun{background:var(--sun);color:#1a1206;border-color:transparent}
+  .spacer{flex:1}
+
+  /* ---- Onboarding / Permission-Overlay ---- */
+  .veil{position:fixed;inset:0;z-index:30;background:radial-gradient(120% 120% at 30% 0%, #11202e 0%, #0B0F14 60%);
+    display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{width:min(460px,100%);}
+  .sunline{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .sunorb{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#FFD27A,var(--sun) 55%,var(--sun-hot));
+    box-shadow:0 0 24px rgba(255,150,30,.55)}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--sun)}
+  h1{font-size:30px;line-height:1.05;margin:6px 0 10px;letter-spacing:-.01em;font-weight:700}
+  .lede{color:var(--muted);font-size:14.5px;line-height:1.5;margin:0 0 18px}
+  .perms{list-style:none;padding:0;margin:0 0 22px;display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .perms li{display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:rgba(255,255,255,.03)}
+  .perms .ico{font-family:var(--mono);font-size:11px;color:var(--sun);border:1px solid var(--line);border-radius:7px;padding:3px 6px;margin-top:1px;min-width:34px;text-align:center}
+  .perms .t{font-size:13.5px}
+  .perms .t small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .start{width:100%;font-size:16px;font-weight:700;padding:15px;border-radius:13px;border:none;cursor:pointer;
+    background:linear-gradient(180deg,#FFC74A,var(--sun));color:#1a1206;box-shadow:0 8px 28px rgba(255,150,30,.32)}
+  .start:active{transform:translateY(1px)}
+  .fineprint{color:var(--muted);font-size:11.5px;line-height:1.5;margin:14px 2px 0}
+  .fineprint code{font-family:var(--mono);color:var(--shade)}
+
+  .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 250px);transform:translateX(-50%);z-index:20;
+    background:var(--panel-solid);border:1px solid var(--line);color:var(--text);font-size:12.5px;padding:9px 14px;border-radius:10px;
+    opacity:0;transition:opacity .25s;pointer-events:none;max-width:88vw;text-align:center}
+  .toast.show{opacity:1}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="scene"></canvas>
+  <div id="reticle"></div>
+
+  <!-- HUD oben -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="name">Schattenwerfer</div>
+      <div class="sub" id="loc">— · — · GPS wartet</div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><span class="k">Zeit</span><span class="v" id="roTime">--:--</span></div>
+      <div class="ro"><span class="k">Azimut</span><span class="v sun" id="roAz">---°</span></div>
+      <div class="ro"><span class="k">Höhe</span><span class="v sun" id="roEl">--°</span></div>
+    </div>
+  </div>
+
+  <!-- Sonnen-Kompass -->
+  <svg id="compass" viewBox="0 0 100 100" aria-hidden="true">
+    <circle cx="50" cy="50" r="46" fill="rgba(11,15,20,.55)" stroke="var(--line-strong)" stroke-width="1"/>
+    <g font-family="var(--mono)" font-size="8" fill="var(--muted)" text-anchor="middle">
+      <text x="50" y="14">N</text><text x="88" y="53">O</text><text x="50" y="92">S</text><text x="13" y="53">W</text>
+    </g>
+    <!-- Tickmarks -->
+    <g id="cTicks" stroke="var(--line)" stroke-width="1"></g>
+    <!-- Blickrichtung (Gerät) -->
+    <polygon id="cView" points="50,8 46,22 54,22" fill="rgba(255,255,255,.7)"/>
+    <!-- Sonne -->
+    <g id="cSun"><circle cx="50" cy="50" r="4.5" fill="var(--sun)"/></g>
+    <circle cx="50" cy="50" r="2" fill="var(--text)"/>
+  </svg>
+
+  <!-- HUD unten -->
+  <div class="dock" id="dock">
+    <div class="dockbar">
+      <span class="chip">Schatten <b id="chipLen">—</b></span>
+      <span class="spacer"></span>
+      <button class="btn" id="btnNorth" title="Kamera nach echtem Norden ausrichten">Norden setzen</button>
+      <button class="btn sun" id="btnNow">Jetzt</button>
+    </div>
+    <div class="grid">
+      <div class="ctrl">
+        <div class="row"><label>Schirmfläche</label><span class="val" id="vArea">7.1 m²</span></div>
+        <input type="range" id="area" min="1" max="20" step="0.1" value="7.1">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Masthöhe</label><span class="val" id="vHeight">2.4 m</span></div>
+        <input type="range" id="height" min="1.6" max="3.2" step="0.05" value="2.4">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Neigungswinkel</label><span class="val" id="vTilt">0°</span></div>
+        <input type="range" id="tilt" min="0" max="60" step="1" value="0">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Neigungsrichtung</label><span class="val" id="vTiltDir">Norden</span></div>
+        <input type="range" id="tiltDir" min="0" max="359" step="1" value="0">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Tageszeit</label><span class="val" id="vClock">jetzt</span></div>
+        <input type="range" id="clock" class="shade-thumb" min="0" max="1439" step="1" value="720">
+      </div>
+      <div class="ctrl">
+        <div class="row"><label>Norden feinjustieren</label><span class="val" id="vHeading">0°</span></div>
+        <input type="range" id="heading" class="shade-thumb" min="-180" max="180" step="1" value="0">
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Onboarding -->
+  <div class="veil" id="veil">
+    <div class="card">
+      <div class="sunline"><div class="sunorb"></div><div class="eyebrow">Live-Schattenstudie</div></div>
+      <h1>Wohin fällt der Schatten deines Sonnenschirms?</h1>
+      <p class="lede">Halte das Telefon hoch und sieh den Schatten als 3D-Overlay über dem Kamerabild — berechnet aus dem echten Sonnenstand für deinen Standort und die Uhrzeit.</p>
+      <ul class="perms">
+        <li><span class="ico">CAM</span><span class="t">Kamera<small>Das Live-Bild wird als Hintergrund genutzt.</small></span></li>
+        <li><span class="ico">GPS</span><span class="t">Standort<small>Bestimmt den Sonnenstand an deinem Ort.</small></span></li>
+        <li><span class="ico">⟳</span><span class="t">Bewegung &amp; Ausrichtung<small>Lässt die Szene mitdrehen, wenn du dich drehst.</small></span></li>
+      </ul>
+      <button class="start" id="btnStart">Simulation starten</button>
+      <p class="fineprint" id="fine">Funktioniert nur über <code>https://</code> (oder <code>localhost</code>). Auf dem iPhone bestätigst du die Sensor-Abfrage beim Tippen. Alle Berechnungen laufen lokal auf dem Gerät — nichts wird hochgeladen.</p>
+    </div>
+  </div>
+
+<script src="./vendor/three.min.js"></script>
+<script>
+"use strict";
+/* =========================================================================
+   Schattenwerfer — Pseudo-AR Sonnenschirm-Schattensimulator
+   Kamera (Magic Window) + GPS + Lagesensoren + Sonnenstand + Three.js
+   ========================================================================= */
+
+const DEG = Math.PI / 180, RAD = 180 / Math.PI;
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  lat: 50.11, lng: 8.68,        // Fallback: Frankfurt, bis GPS liefert
+  hasFix: false,
+  manualClock: false,           // Tageszeit-Schieber aktiv?
+  clockMin: 720,                // Minuten seit Mitternacht (lokale Zeit)
+  headingOffsetDeg: 0,          // manuelle Nord-Feinjustierung
+  area: 7.1, height: 2.4, tiltDeg: 0, tiltDirDeg: 0,
+  compassHeading: null,         // webkitCompassHeading, falls verfügbar
+  screenAngle: 0,
+};
+
+/* -------------------------------------------------------------------------
+   1) Sonnenstand  (kompakte NOAA/SunCalc-Variante)
+   Liefert Azimut (von Norden, im Uhrzeigersinn) und Höhe in Radiant.
+   ------------------------------------------------------------------------- */
+function sunPosition(date, lat, lng) {
+  const dayMs = 86400000, J1970 = 2440588, J2000 = 2451545;
+  const e = 23.4397 * DEG;
+  const toDays = (d) => d.valueOf() / dayMs - 0.5 + J1970 - J2000;
+  const d = toDays(date);
+  const M = (357.5291 + 0.98560028 * d) * DEG;
+  const C = (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M)) * DEG;
+  const P = 102.9372 * DEG;
+  const L = M + C + P + Math.PI;                       // ekliptische Länge
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));    // Deklination (beta = 0)
+  const ra  = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  const lw  = -lng * DEG;
+  const phi = lat * DEG;
+  const theta = (280.16 + 360.9856235 * d) * DEG - lw; // Sternzeit
+  const H = theta - ra;
+  // SunCalc-Azimut: von Süden, nach Westen positiv -> +PI auf Norden-Basis
+  const azS = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+  let azN = azS + Math.PI;
+  azN = (azN % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  return { azimuth: azN, altitude: alt };
+}
+
+/* Weltachsen:  +X = Osten, +Y = oben, -Z = Norden.
+   Einheitsvektor zur Sonne aus Azimut(N, im UZS) und Höhe. */
+function sunVector(azN, alt) {
+  const ch = Math.cos(alt);
+  return new THREE.Vector3(
+    Math.sin(azN) * ch,   // Ost
+    Math.sin(alt),        // hoch
+    -Math.cos(azN) * ch   // Nord = -Z
+  );
+}
+
+/* -------------------------------------------------------------------------
+   2) Three.js Szene
+   ------------------------------------------------------------------------- */
+const canvas = $("scene");
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
+camera.position.set(0, 0, 0); // Gerät = Beobachter im Ursprung, ~Augenhöhe
+
+const EYE = 1.5;              // angenommene Höhe des Telefons über dem Boden (m)
+const FRONT = 4.0;            // Schirm 4 m vor dem Beobachter (Richtung Norden)
+
+// Licht
+const sunLight = new THREE.DirectionalLight(0xfff2dc, 2.2);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(2048, 2048);
+const sc = sunLight.shadow.camera;
+sc.near = 0.5; sc.far = 80; sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14;
+sunLight.shadow.bias = -0.0008;
+scene.add(sunLight);
+scene.add(sunLight.target);
+scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x404038, 0.55));
+
+// Boden, der nur den Schatten zeigt (transparent über dem Kamerabild)
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.ShadowMaterial({ opacity: 0.42 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -EYE;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Sonnenmarker am Himmel
+const sunOrb = new THREE.Mesh(
+  new THREE.SphereGeometry(0.6, 20, 20),
+  new THREE.MeshBasicMaterial({ color: 0xffcf6a })
+);
+scene.add(sunOrb);
+
+/* ---- Sonnenschirm: Mast + Pivot (für Neigung) + Schirmdach ---- */
+const parasol = new THREE.Group();
+parasol.position.set(0, -EYE, -FRONT); // auf dem Boden, Richtung Norden
+scene.add(parasol);
+
+const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: .6, metalness: .3 });
+const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 1, 14), poleMat);
+pole.castShadow = true;
+parasol.add(pole);
+
+const tiltPivot = new THREE.Group();   // sitzt oben am Mast, neigt das Dach
+parasol.add(tiltPivot);
+
+const canopyMat = new THREE.MeshStandardMaterial({ color: 0xd64b3f, roughness: .85, side: THREE.DoubleSide });
+const canopy = new THREE.Mesh(new THREE.ConeGeometry(1, 0.32, 8), canopyMat);
+canopy.castShadow = true;
+tiltPivot.add(canopy);
+// kleiner Mittelknauf
+const finial = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10),
+  new THREE.MeshStandardMaterial({ color: 0x2a2d33 }));
+tiltPivot.add(finial);
+
+function rebuildParasol() {
+  const radius = Math.sqrt(state.area / Math.PI);   // Fläche -> Radius
+  const h = state.height;
+  // Mast
+  pole.scale.set(1, h, 1);
+  pole.position.set(0, h / 2, 0);
+  // Pivot oben am Mast
+  tiltPivot.position.set(0, h, 0);
+  // Dach skalieren (Radius + leicht proportionale Wölbung)
+  canopy.scale.set(radius, 1 + radius * 0.18, radius);
+  canopy.position.set(0, 0.16 * (1 + radius * 0.18), 0);
+  finial.position.set(0, 0.34 * (1 + radius * 0.18), 0);
+  // Neigung: erst Richtung (um Welt-Y), dann Kippen (um X)
+  const dir = state.tiltDirDeg * DEG;
+  const ang = state.tiltDeg * DEG;
+  const qDir = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dir);
+  const qTip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ang);
+  tiltPivot.quaternion.copy(qDir).multiply(qTip);
+}
+
+/* -------------------------------------------------------------------------
+   3) Sonne in die Szene setzen + Anzeigen aktualisieren
+   ------------------------------------------------------------------------- */
+function currentDate() {
+  if (!state.manualClock) return new Date();
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setMinutes(state.clockMin);
+  return d;
+}
+
+function updateSun() {
+  const date = currentDate();
+  const { azimuth, altitude } = sunPosition(date, state.lat, state.lng);
+  const v = sunVector(azimuth, altitude);
+
+  // Licht: aus Sonnenrichtung auf den Schirm
+  const dist = 30;
+  sunLight.position.copy(v).multiplyScalar(dist).add(new THREE.Vector3(0, -EYE, -FRONT));
+  sunLight.target.position.set(0, -EYE, -FRONT);
+  sunLight.intensity = altitude > 0 ? 2.2 : 0.0;
+  sunOrb.visible = altitude > 0;
+  sunOrb.position.copy(v).multiplyScalar(40);
+
+  // Schattenlänge grob abschätzen (Mast)
+  let lenTxt = "—";
+  if (altitude > 0) {
+    const len = state.height / Math.tan(altitude);
+    lenTxt = (len > 40 ? ">40" : len.toFixed(1)) + " m";
+  } else {
+    lenTxt = "Nacht";
+  }
+
+  // Readouts
+  $("roTime").textContent = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  $("roAz").textContent = Math.round(azimuth * RAD) + "°";
+  $("roEl").textContent = (altitude > 0 ? "+" : "") + Math.round(altitude * RAD) + "°";
+  $("chipLen").textContent = lenTxt;
+
+  drawCompass(azimuth * RAD, altitude * RAD);
+}
+
+/* Kompass-SVG: Sonne relativ zur Blickrichtung des Geräts */
+function buildTicks() {
+  const g = $("cTicks"); let s = "";
+  for (let a = 0; a < 360; a += 30) {
+    const r1 = a % 90 === 0 ? 40 : 43, r2 = 46;
+    const rad = (a - 90) * DEG; // 0° oben
+    const x1 = 50 + r1 * Math.cos(rad), y1 = 50 + r1 * Math.sin(rad);
+    const x2 = 50 + r2 * Math.cos(rad), y2 = 50 + r2 * Math.sin(rad);
+    s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+  }
+  g.innerHTML = s;
+}
+buildTicks();
+
+function deviceHeadingDeg() {
+  // Blickrichtung des Geräts in Grad (0 = Norden). Aus Kompass + Feinjustierung.
+  let h = (state.compassHeading != null) ? state.compassHeading : 0;
+  h += state.headingOffsetDeg;
+  return ((h % 360) + 360) % 360;
+}
+
+function drawCompass(sunAzDeg, sunElDeg) {
+  const view = deviceHeadingDeg();
+  $("cView").setAttribute("transform", `rotate(0 50 50)`); // Blickpfeil bleibt oben
+  // Sonne relativ zur Blickrichtung:
+  const rel = (sunAzDeg - view) * DEG;
+  const r = 30;
+  const cx = 50 + r * Math.sin(rel);
+  const cy = 50 - r * Math.cos(rel);
+  const below = sunElDeg <= 0;
+  $("cSun").setAttribute("transform", `translate(${(cx - 50).toFixed(1)} ${(cy - 50).toFixed(1)})`);
+  $("cSun").querySelector("circle").setAttribute("fill", below ? "rgba(127,166,214,.6)" : "var(--sun)");
+  $("cSun").querySelector("circle").setAttribute("r", (below ? 3 : 4.5).toString());
+}
+
+/* -------------------------------------------------------------------------
+   4) Geräteausrichtung (Magic Window)
+   Standard-Three.js-Rezept + Yaw-Offset für Norden.
+   ------------------------------------------------------------------------- */
+const zee = new THREE.Vector3(0, 0, 1);
+const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -90° um X
+const qOffset = new THREE.Quaternion();
+const eulerTmp = new THREE.Euler();
+const orient = { alpha: 0, beta: 0, gamma: 0, has: false };
+
+function deviceQuaternion(out, alpha, beta, gamma, screenDeg) {
+  eulerTmp.set(beta, alpha, -gamma, "YXZ");
+  out.setFromEuler(eulerTmp);
+  out.multiply(q1);
+  out.multiply(new THREE.Quaternion().setFromAxisAngle(zee, -screenDeg * DEG));
+  return out;
+}
+
+function onOrientation(e) {
+  if (e.alpha == null && e.beta == null && e.gamma == null) return;
+  orient.alpha = (e.alpha || 0) * DEG;
+  orient.beta  = (e.beta  || 0) * DEG;
+  orient.gamma = (e.gamma || 0) * DEG;
+  orient.has = true;
+  if (typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)) {
+    state.compassHeading = e.webkitCompassHeading; // 0 = Norden, im UZS
+  }
+}
+
+function readScreenAngle() {
+  state.screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+}
+
+/* "Norden setzen": richtet die Kamera anhand des Kompasses aus.
+   Berechnet den Versatz so, dass die Blickrichtung dem echten Kompass entspricht. */
+function calibrateNorth() {
+  if (!orient.has) { toast("Keine Lagesensoren — nutze die Feinjustierung."); return; }
+  // aktuelle (versatzfreie) Blickrichtung aus der Geräte-Quaternion bestimmen
+  const q = deviceQuaternion(new THREE.Quaternion(), orient.alpha, orient.beta, orient.gamma, state.screenAngle);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+  const derivedAz = (Math.atan2(fwd.x, -fwd.z) * RAD + 360) % 360; // 0=N
+  if (state.compassHeading != null) {
+    state.headingOffsetDeg = 0;
+    // Versatz, damit derivedAz == compassHeading
+    let off = state.compassHeading - derivedAz;
+    off = ((off + 540) % 360) - 180;
+    state.headingOffsetDeg = Math.round(off);
+    $("heading").value = state.headingOffsetDeg;
+    $("vHeading").textContent = state.headingOffsetDeg + "°";
+    toast("Nach Kompass ausgerichtet.");
+  } else {
+    toast("Kein Kompass verfügbar — bitte manuell justieren.");
+  }
+}
+
+/* -------------------------------------------------------------------------
+   5) Render-Schleife
+   ------------------------------------------------------------------------- */
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", () => { resize(); readScreenAngle(); });
+
+const qDevice = new THREE.Quaternion();
+let sunTick = 0;
+
+function loop(t) {
+  // Kameraausrichtung
+  if (orient.has) {
+    deviceQuaternion(qDevice, orient.alpha, orient.beta, orient.gamma, state.screenAngle);
+    // Yaw-Offset aus der Nord-Feinjustierung (Kalibrierung schreibt ihn ebenfalls hierher)
+    qOffset.setFromAxisAngle(new THREE.Vector3(0, 1, 0), state.headingOffsetDeg * DEG);
+    camera.quaternion.copy(qOffset).multiply(qDevice);
+  } else {
+    // ohne Sensoren: leichte automatische Drehung zur Orientierung
+    camera.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), state.headingOffsetDeg * DEG);
+  }
+
+  if (t - sunTick > 1000) { updateSun(); sunTick = t; }  // Sonne sekündlich
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+/* -------------------------------------------------------------------------
+   6) UI-Verdrahtung
+   ------------------------------------------------------------------------- */
+let toastTimer;
+function toast(msg) {
+  const el = $("toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+const COMPASS_LABELS = ["Norden","Nordost","Osten","Südost","Süden","Südwest","Westen","Nordwest"];
+function dirLabel(deg){ return COMPASS_LABELS[Math.round(deg/45)%8]; }
+
+function bindSliders() {
+  $("area").addEventListener("input", e => {
+    state.area = +e.target.value;
+    const d = 2 * Math.sqrt(state.area / Math.PI);
+    $("vArea").textContent = `${state.area.toFixed(1)} m²  ·  ⌀${d.toFixed(1)} m`;
+    rebuildParasol();
+  });
+  $("height").addEventListener("input", e => {
+    state.height = +e.target.value; $("vHeight").textContent = state.height.toFixed(2) + " m"; rebuildParasol();
+  });
+  $("tilt").addEventListener("input", e => {
+    state.tiltDeg = +e.target.value; $("vTilt").textContent = state.tiltDeg + "°"; rebuildParasol();
+  });
+  $("tiltDir").addEventListener("input", e => {
+    state.tiltDirDeg = +e.target.value;
+    $("vTiltDir").textContent = `${dirLabel(state.tiltDirDeg)} · ${state.tiltDirDeg}°`;
+    rebuildParasol();
+  });
+  $("clock").addEventListener("input", e => {
+    state.manualClock = true; state.clockMin = +e.target.value;
+    const hh = String(Math.floor(state.clockMin/60)).padStart(2,"0");
+    const mm = String(state.clockMin%60).padStart(2,"0");
+    $("vClock").textContent = `${hh}:${mm}`;
+    updateSun();
+  });
+  $("heading").addEventListener("input", e => {
+    state.headingOffsetDeg = +e.target.value; $("vHeading").textContent = state.headingOffsetDeg + "°";
+  });
+  $("btnNow").addEventListener("click", () => {
+    state.manualClock = false; $("vClock").textContent = "jetzt";
+    const now = new Date(); $("clock").value = now.getHours()*60 + now.getMinutes();
+    updateSun(); toast("Aktuelle Uhrzeit");
+  });
+  $("btnNorth").addEventListener("click", calibrateNorth);
+  // initiale Labels
+  $("area").dispatchEvent(new Event("input"));
+  $("tiltDir").dispatchEvent(new Event("input"));
+}
+
+/* -------------------------------------------------------------------------
+   7) Start / Berechtigungen  (muss aus einer Nutzer-Geste kommen — iOS)
+   ------------------------------------------------------------------------- */
+async function requestOrientation() {
+  try {
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === "function") {
+      const res = await DOE.requestPermission();
+      if (res !== "granted") { toast("Sensorzugriff abgelehnt — Feinjustierung nutzen."); return; }
+    }
+    window.addEventListener("deviceorientation", onOrientation, true);
+    if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") {
+      try { await DeviceMotionEvent.requestPermission(); } catch (_) {}
+    }
+  } catch (err) {
+    toast("Lagesensoren nicht verfügbar.");
+  }
+}
+
+async function requestCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }, audio: false
+    });
+    const v = $("cam"); v.srcObject = stream; await v.play().catch(()=>{});
+  } catch (err) {
+    $("cam").style.background = "#1a2330";
+    toast("Keine Kamera — Schatten wird ohne Live-Bild gezeigt.");
+  }
+}
+
+function watchLocation() {
+  if (!navigator.geolocation) { $("loc").textContent = "GPS nicht verfügbar"; return; }
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      state.lat = pos.coords.latitude; state.lng = pos.coords.longitude; state.hasFix = true;
+      $("loc").textContent = `${state.lat.toFixed(3)}°, ${state.lng.toFixed(3)}° · Fix`;
+      updateSun();
+    },
+    (err) => { $("loc").textContent = "GPS verweigert · Frankfurt (Demo)"; },
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 12000 }
+  );
+}
+
+async function start() {
+  $("veil").classList.add("hidden");
+  resize(); readScreenAngle();
+  rebuildParasol();
+  await requestCamera();
+  await requestOrientation();
+  watchLocation();
+  updateSun();
+  requestAnimationFrame(loop);
+  if (!orient.has) setTimeout(() => { if(!orient.has) toast("Keine Lagesensoren — drehe per Feinjustierung."); }, 1500);
+}
+
+function init() {
+  // Secure-Context-Hinweis
+  if (!window.isSecureContext) {
+    $("fine").innerHTML = "⚠️ Diese Seite läuft nicht über <code>https://</code>. Kamera und Sensoren bleiben blockiert. Lade die Datei auf einen HTTPS-Host (z. B. GitHub Pages) und öffne sie dort.";
+  }
+  bindSliders();
+  $("btnStart").addEventListener("click", start, { once: true });
+}
+
+if (typeof THREE === "undefined") {
+  document.getElementById("fine").innerHTML =
+    "⚠️ 3D-Bibliothek konnte nicht geladen werden (Netzwerk?). Bitte mit Internetverbindung erneut öffnen.";
+} else {
+  init();
+}
+</script>
+</body>
+</html>
