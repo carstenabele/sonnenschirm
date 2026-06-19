@@ -11,33 +11,24 @@ settings:
     SWIFT_VERSION: "6.0"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
+packages:
+  SunMathKit:
+    path: SunMathKit
 targets:
   Schattenwerfer:
     type: application
     platform: iOS
     sources:
       - Sources
+    dependencies:
+      - package: SunMathKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: it.ravensburg.schattenwerfer
         INFOPLIST_FILE: Resources/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
-  SchattenwerferTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - Tests
-    dependencies:
-      - target: Schattenwerfer
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: it.ravensburg.schattenwerfer.tests
 schemes:
   Schattenwerfer:
     build:
       targets:
         Schattenwerfer: all
-        SchattenwerferTests: [test]
-    test:
-      targets:
-        - SchattenwerferTests
