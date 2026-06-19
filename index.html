@@ -193,8 +193,9 @@
   </div>
 
 <script src="./vendor/three.min.js"></script>
-<script>
+<script type="module">
 "use strict";
+import { sunPosition, sunVector, shadowMetrics } from './src/sun-math.mjs';
 /* =========================================================================
    Schattenwerfer — Pseudo-AR Sonnenschirm-Schattensimulator
    Kamera (Magic Window) + GPS + Lagesensoren + Sonnenstand + Three.js
@@ -215,44 +216,7 @@ const state = {
 };
 
 /* -------------------------------------------------------------------------
-   1) Sonnenstand  (kompakte NOAA/SunCalc-Variante)
-   Liefert Azimut (von Norden, im Uhrzeigersinn) und Höhe in Radiant.
-   ------------------------------------------------------------------------- */
-function sunPosition(date, lat, lng) {
-  const dayMs = 86400000, J1970 = 2440588, J2000 = 2451545;
-  const e = 23.4397 * DEG;
-  const toDays = (d) => d.valueOf() / dayMs - 0.5 + J1970 - J2000;
-  const d = toDays(date);
-  const M = (357.5291 + 0.98560028 * d) * DEG;
-  const C = (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M)) * DEG;
-  const P = 102.9372 * DEG;
-  const L = M + C + P + Math.PI;                       // ekliptische Länge
-  const dec = Math.asin(Math.sin(e) * Math.sin(L));    // Deklination (beta = 0)
-  const ra  = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
-  const lw  = -lng * DEG;
-  const phi = lat * DEG;
-  const theta = (280.16 + 360.9856235 * d) * DEG - lw; // Sternzeit
-  const H = theta - ra;
-  // SunCalc-Azimut: von Süden, nach Westen positiv -> +PI auf Norden-Basis
-  const azS = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
-  let azN = azS + Math.PI;
-  azN = (azN % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
-  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
-  return { azimuth: azN, altitude: alt };
-}
-
-/* Weltachsen:  +X = Osten, +Y = oben, -Z = Norden.
-   Einheitsvektor zur Sonne aus Azimut(N, im UZS) und Höhe. */
-function sunVector(azN, alt) {
-  const ch = Math.cos(alt);
-  return new THREE.Vector3(
-    Math.sin(azN) * ch,   // Ost
-    Math.sin(alt),        // hoch
-    -Math.cos(azN) * ch   // Nord = -Z
-  );
-}
-
-/* -------------------------------------------------------------------------
+   Sonnenstand & Sonnenvektor: siehe ./src/sun-math.mjs (importiert oben).
    2) Three.js Szene
    ------------------------------------------------------------------------- */
 const canvas = $("scene");
@@ -353,7 +317,8 @@ function currentDate() {
 function updateSun() {
   const date = currentDate();
   const { azimuth, altitude } = sunPosition(date, state.lat, state.lng);
-  const v = sunVector(azimuth, altitude);
+  const sv = sunVector(azimuth, altitude);
+  const v = new THREE.Vector3(sv.x, sv.y, sv.z);
 
   // Licht: aus Sonnenrichtung auf den Schirm
   const dist = 30;
