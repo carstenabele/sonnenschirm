@@ -66,10 +66,26 @@ final class ParasolState: ObservableObject {
     /// Returns shadow metrics for the current parasol configuration.
     func metrics() -> (areaM2: Double, lengthM: Double, isNight: Bool) {
         let s = sun()
+
+        // Choose effective dimensions based on shape
+        let (effectiveL, effectiveB, effectiveYaw): (Double, Double, Double)
+        if shape == .round {
+            // Model the disc as an area-preserving square
+            let side = sqrt(area)
+            effectiveL = side
+            effectiveB = side
+            effectiveYaw = 0  // Round is rotationally symmetric
+        } else {
+            // Rectangle: use actual dimensions
+            effectiveL = length
+            effectiveB = width
+            effectiveYaw = yawDeg
+        }
+
         return SunMath.shadowMetrics(
-            L: length,
-            B: width,
-            yawDeg: yawDeg,
+            L: effectiveL,
+            B: effectiveB,
+            yawDeg: effectiveYaw,
             tiltDeg: tiltDeg,
             tiltDirDeg: tiltDirDeg,
             height: height,
