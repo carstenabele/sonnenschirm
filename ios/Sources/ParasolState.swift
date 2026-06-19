@@ -6,8 +6,10 @@ final class ParasolState: ObservableObject {
 
     // MARK: - Shape
 
-    enum Shape {
+    enum Shape: CaseIterable, Identifiable, Hashable {
         case round, rect
+
+        var id: Self { self }
     }
 
     // MARK: - Published properties
