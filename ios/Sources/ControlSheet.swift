@@ -6,10 +6,12 @@ struct ControlSheet: View {
     @ObservedObject var state: ParasolState
 
     var body: some View {
-        NavigationStack {
-            Form {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
                 // MARK: Form
-                Section("Form") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Form")
+                        .font(.headline)
                     Picker("Form", selection: $state.shape) {
                         Text("Rund").tag(ParasolState.Shape.round)
                         Text("Rechteck").tag(ParasolState.Shape.rect)
@@ -18,8 +20,10 @@ struct ControlSheet: View {
                 }
 
                 // MARK: Abmessungen
-                if state.shape == .rect {
-                    Section("Abmessungen") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Abmessungen")
+                        .font(.headline)
+                    if state.shape == .rect {
                         LabeledSlider(
                             label: "Länge",
                             value: $state.length,
@@ -41,9 +45,7 @@ struct ControlSheet: View {
                             unit: "°",
                             format: "%.0f"
                         )
-                    }
-                } else {
-                    Section("Abmessungen") {
+                    } else {
                         LabeledSlider(
                             label: "Schirmfläche",
                             value: $state.area,
@@ -55,7 +57,9 @@ struct ControlSheet: View {
                 }
 
                 // MARK: Aufstellung
-                Section("Aufstellung") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Aufstellung")
+                        .font(.headline)
                     LabeledSlider(
                         label: "Masthöhe",
                         value: $state.height,
@@ -80,7 +84,9 @@ struct ControlSheet: View {
                 }
 
                 // MARK: Zeit
-                Section("Zeit") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Zeit")
+                        .font(.headline)
                     DatePicker(
                         "Datum & Uhrzeit",
                         selection: Binding(
@@ -105,11 +111,12 @@ struct ControlSheet: View {
                         .tint(state.useNow ? .accentColor : .secondary)
                         Spacer()
                     }
-                    .listRowBackground(Color.clear)
                 }
+
+                Spacer()
             }
-            .navigationTitle("Schattenwerfer")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
     }
 }

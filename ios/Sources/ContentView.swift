@@ -25,10 +25,10 @@ struct ContentView: View {
         .onAppear {
             loc.start()
         }
-        .onChange(of: loc.coordinate.lat) { newLat in
+        .onChange(of: loc.coordinate.lat) { _, newLat in
             state.lat = newLat
         }
-        .onChange(of: loc.coordinate.lng) { newLng in
+        .onChange(of: loc.coordinate.lng) { _, newLng in
             state.lng = newLng
         }
     }
@@ -39,6 +39,12 @@ struct ContentView: View {
 private struct ReadoutStrip: View {
 
     @ObservedObject var state: ParasolState
+
+    private static let timeFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        return fmt
+    }()
 
     private var sunValues: (azDeg: Double, altDeg: Double) {
         let s = state.sun()
@@ -52,9 +58,7 @@ private struct ReadoutStrip: View {
     }
 
     private var timeString: String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
-        return fmt.string(from: state.effectiveDate)
+        Self.timeFormatter.string(from: state.effectiveDate)
     }
 
     var body: some View {
@@ -63,7 +67,7 @@ private struct ReadoutStrip: View {
             Label(timeString, systemImage: "clock")
             Label(String(format: "%.0f°", sun.azDeg), systemImage: "safari")
             Label(String(format: "%.0f°", sun.altDeg), systemImage: "sun.horizon")
-            Label(String(format: "%.1f m²", areaM2), systemImage: "shadow")
+            Label(String(format: "%.1f m²", areaM2), systemImage: "cube.transparent")
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.white)
