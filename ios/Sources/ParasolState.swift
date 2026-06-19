@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import SunMathKit
 
 /// Observable state model for the parasol (Sonnenschirm).
 final class ParasolState: ObservableObject {
