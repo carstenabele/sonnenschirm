@@ -67,7 +67,11 @@
   input.shade-thumb::-webkit-slider-thumb{background:var(--shade);border-color:#0a141f}
   input.shade-thumb::-moz-range-thumb{background:var(--shade);border-color:#0a141f}
 
-  .dockbar{display:flex;gap:8px;max-width:560px;margin:0 auto 10px;align-items:center}
+  .dockbar{display:flex;gap:8px;max-width:560px;margin:0 auto 10px;align-items:center;flex-wrap:wrap}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+  .seg-btn{font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--muted);
+    background:transparent;border:none;padding:6px 12px;cursor:pointer}
+  .seg-btn.active{background:var(--sun);color:#1a1206}
   .chip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--text);background:rgba(255,255,255,.08);
     border:1px solid var(--line);border-radius:999px;padding:6px 11px;display:inline-flex;gap:6px;align-items:center}
   .chip b{font-weight:600;color:var(--sun)}
@@ -141,13 +145,30 @@
   <!-- HUD unten -->
   <div class="dock" id="dock">
     <div class="dockbar">
+      <div class="seg" id="shapeToggle" role="group" aria-label="Schirmform">
+        <button class="seg-btn" data-shape="round">Rund</button>
+        <button class="seg-btn active" data-shape="rect">Rechteck</button>
+      </div>
       <span class="chip">Schatten <b id="chipLen">—</b></span>
+      <span class="chip">Fläche <b id="chipArea">—</b></span>
       <span class="spacer"></span>
       <button class="btn" id="btnNorth" title="Kamera nach echtem Norden ausrichten">Norden setzen</button>
       <button class="btn sun" id="btnNow">Jetzt</button>
     </div>
     <div class="grid">
-      <div class="ctrl">
+      <div class="ctrl" id="ctrlLength" data-shape="rect">
+        <div class="row"><label>Länge</label><span class="val" id="vLength">4.0 m</span></div>
+        <input type="range" id="length" min="1.5" max="6" step="0.1" value="4.0">
+      </div>
+      <div class="ctrl" id="ctrlWidth" data-shape="rect">
+        <div class="row"><label>Breite</label><span class="val" id="vWidth">2.0 m</span></div>
+        <input type="range" id="width" min="1.5" max="6" step="0.1" value="2.0">
+      </div>
+      <div class="ctrl" id="ctrlYaw" data-shape="rect">
+        <div class="row"><label>Drehung</label><span class="val" id="vYaw">Nord–Süd · 0°</span></div>
+        <input type="range" id="yaw" min="0" max="359" step="1" value="0">
+      </div>
+      <div class="ctrl" id="ctrlArea" data-shape="round">
         <div class="row"><label>Schirmfläche</label><span class="val" id="vArea">7.1 m²</span></div>
         <input type="range" id="area" min="1" max="20" step="0.1" value="7.1">
       </div>
@@ -359,6 +380,19 @@ function updateSun() {
     lenTxt = "Nacht";
   }
 
+  // Schattenfläche des Rechteck-Dachs (FR-9)
+  if (state.shape === "rect" && altitude > 0) {
+    const m = shadowMetrics({
+      L: state.L, B: state.B, yawDeg: state.yawDeg,
+      tiltDeg: state.tiltDeg, tiltDirDeg: state.tiltDirDeg,
+      height: state.height, eye: EYE, front: FRONT,
+      azimuthRad: azimuth, altitudeRad: altitude,
+    });
+    $("chipArea").textContent = (m.areaM2 > 999 ? ">999" : m.areaM2.toFixed(1)) + " m²";
+  } else {
+    $("chipArea").textContent = altitude > 0 ? "—" : "Nacht";
+  }
+
   // Readouts
   $("roTime").textContent = date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   $("roAz").textContent = Math.round(azimuth * RAD) + "°";
@@ -501,12 +535,51 @@ function toast(msg) {
 const COMPASS_LABELS = ["Norden","Nordost","Osten","Südost","Süden","Südwest","Westen","Nordwest"];
 function dirLabel(deg){ return COMPASS_LABELS[Math.round(deg/45)%8]; }
 
+// Klartext für die Längsachse des Rechtecks (Yaw).
+function axisLabel(deg){
+  const a = ((deg % 180) + 180) % 180;
+  if (a < 22.5 || a >= 157.5) return "Nord–Süd";
+  if (a < 67.5) return "NO–SW";
+  if (a < 112.5) return "Ost–West";
+  return "NW–SO";
+}
+
+function applyShapeVisibility() {
+  document.querySelectorAll('[data-shape]').forEach((el) => {
+    if (el.classList.contains('seg-btn')) {
+      el.classList.toggle('active', el.dataset.shape === state.shape);
+    } else {
+      el.classList.toggle('hidden', el.dataset.shape !== state.shape);
+    }
+  });
+  rebuildParasol();
+  updateSun();
+}
+
 function bindSliders() {
   $("area").addEventListener("input", e => {
     state.area = +e.target.value;
     const d = 2 * Math.sqrt(state.area / Math.PI);
     $("vArea").textContent = `${state.area.toFixed(1)} m²  ·  ⌀${d.toFixed(1)} m`;
     rebuildParasol();
+  });
+  $("length").addEventListener("input", e => {
+    state.L = +e.target.value; $("vLength").textContent = state.L.toFixed(1) + " m";
+    rebuildParasol(); updateSun();
+  });
+  $("width").addEventListener("input", e => {
+    state.B = +e.target.value; $("vWidth").textContent = state.B.toFixed(1) + " m";
+    rebuildParasol(); updateSun();
+  });
+  $("yaw").addEventListener("input", e => {
+    state.yawDeg = +e.target.value;
+    $("vYaw").textContent = `${axisLabel(state.yawDeg)} · ${state.yawDeg}°`;
+    rebuildParasol(); updateSun();
+  });
+  $("shapeToggle").addEventListener("click", (e) => {
+    const btn = e.target.closest('.seg-btn'); if (!btn) return;
+    state.shape = btn.dataset.shape;
+    applyShapeVisibility();
   });
   $("height").addEventListener("input", e => {
     state.height = +e.target.value; $("vHeight").textContent = state.height.toFixed(2) + " m"; rebuildParasol();
@@ -538,6 +611,10 @@ function bindSliders() {
   // initiale Labels
   $("area").dispatchEvent(new Event("input"));
   $("tiltDir").dispatchEvent(new Event("input"));
+  $("length").dispatchEvent(new Event("input"));
+  $("width").dispatchEvent(new Event("input"));
+  $("yaw").dispatchEvent(new Event("input"));
+  applyShapeVisibility();
 }
 
 /* -------------------------------------------------------------------------
