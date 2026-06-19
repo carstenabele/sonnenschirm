@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>UILaunchScreen</key>
+  <dict/>
+  <key>NSCameraUsageDescription</key>
+  <string>Für das Live-Kamerabild, über das der Schatten gelegt wird.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Zur Berechnung des Sonnenstands an deinem Standort.</string>
+  <key>UIRequiredDeviceCapabilities</key>
+  <array>
+    <string>arkit</string>
+  </array>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+  </array>
+</dict>
+</plist>
