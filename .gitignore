@@ -5,3 +5,4 @@ node_modules/
 ios/Schattenwerfer.xcodeproj/
 ios/build/
 ios/DerivedData/
+.superpowers/

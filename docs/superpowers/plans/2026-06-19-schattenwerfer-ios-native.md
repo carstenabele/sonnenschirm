@@ -13,15 +13,18 @@
 - **Projektort:** Alles unter `ios/`. Web-App im Repo-Root bleibt unverändert.
 - **Projektgenerierung:** ausschließlich über `ios/project.yml` (XcodeGen). Kein handgepflegtes `.xcodeproj`. Nach jeder `project.yml`-Änderung neu generieren: `cd ios && xcodegen generate`.
 - **Bundle-ID:** `it.ravensburg.schattenwerfer`. Deployment-Target iOS 17.0.
-- **`SunMath.swift` ist pur:** nur `Foundation`/`simd`, kein UIKit/SwiftUI/RealityKit. Vektoren als `SIMD3<Double>`. Winkel-Argumente in Grad, intern Radiant.
+- **`SunMath` ist pur:** nur `Foundation`/`simd`, kein UIKit/SwiftUI/RealityKit. Vektoren als `SIMD3<Double>`. Winkel-Argumente in Grad, intern Radiant. Liegt im SwiftPM-Paket `ios/SunMathKit`.
 - **Weltachsen (RealityKit, .gravityAndHeading):** +X = Osten, +Y = oben, −Z = Norden (gleiche Konvention wie `sun-math.mjs`).
 - **Konstanten:** Schirmmaße L,B 1,5–6,0 m (Schritt 0,1); Yaw 0–359°; Masthöhe 1,6–3,2 m; Neigung 0–60°.
 - **Sprache:** UI-Texte + Commit-Messages Deutsch.
-- **Build-Verifikation (Simulator):**
-  `xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer -destination 'platform=iOS Simulator,name=iPhone 16' build`
-- **Test-Verifikation:**
-  `xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer -destination 'platform=iOS Simulator,name=iPhone 16' test`
-- **Ehrlichkeit:** ARKit (Kamera/Bodenerkennung/echte Schatten) läuft NICHT im Simulator. Jede AR-Task wird hier nur auf „kompiliert + startet ohne Crash" geprüft; AR-Verhalten verifiziert der Nutzer am Gerät.
+- **Git-Disziplin:** NIE den Branch wechseln. Auf `feat/ios-native` bleiben und dort committen. Kein `git checkout`/`switch`/`reset` anderer Branches.
+- **Umgebungs-Constraint (wichtig):** Dieses System hat den iOS-26.5-Simulator-SDK, aber KEINE lauffähige iOS-26.5-Runtime. Für den Simulator lässt sich daher **kompilieren**, aber **nichts ausführen** (kein `xcodebuild test`, kein App-Start/Screenshot im Simulator).
+- **Build-Verifikation (nur Compile):**
+  `xcodebuild -project ios/Schattenwerfer.xcodeproj -target Schattenwerfer -sdk iphonesimulator26.5 -configuration Debug build`
+  → muss `** BUILD SUCCEEDED **` ausgeben.
+- **Mathematik-Test-Verifikation:** reine Mathematik im SwiftPM-Paket, host-nativ getestet:
+  `cd ios/SunMathKit && swift test` → alle Tests grün (kein Simulator nötig).
+- **Ehrlichkeit:** ARKit (Kamera/Bodenerkennung/echte Schatten) und jeder Simulator-Laufzeittest sind hier NICHT möglich. App-/AR-/UI-Tasks werden nur auf „kompiliert sauber" geprüft; Laufzeit-/AR-Verhalten verifiziert der Nutzer am Gerät.
 
 ---
 
@@ -33,8 +36,9 @@
 | `ios/Resources/Info.plist` | Kamera-/Standort-Texte, ARKit required | 1 |
 | `ios/Sources/SchattenwerferApp.swift` | `@main` App-Entry | 1 |
 | `ios/Sources/ContentView.swift` | AR-Ansicht + Readouts + Sheet-Host | 1 (Stub), 6 |
-| `ios/Sources/SunMath.swift` | Pure Sonnen-/Schatten-Mathematik | 2 |
-| `ios/Tests/SunMathTests.swift` | XCTest der PRD-Fälle | 2 |
+| `ios/SunMathKit/Package.swift` | SwiftPM-Paket für die reine Mathematik | 2 |
+| `ios/SunMathKit/Sources/SunMathKit/SunMath.swift` | Pure Sonnen-/Schatten-Mathematik | 2 |
+| `ios/SunMathKit/Tests/SunMathKitTests/SunMathTests.swift` | XCTest der PRD-Fälle (host-nativ) | 2 |
 | `ios/Sources/ParasolState.swift` | `ObservableObject` Einstellungen | 3 |
 | `ios/Sources/LocationProvider.swift` | CoreLocation-Wrapper | 3 |
 | `ios/Sources/ParasolEntity.swift` | RealityKit-Schirmmodell (Mast + Dach) | 4 |
@@ -182,12 +186,14 @@ git commit -m "feat(ios): XcodeGen-Gerüst, App baut im Simulator"
 
 ---
 
-## Task 2: `SunMath.swift` + Tests (Port der Mathematik, TDD)
+## Task 2: `SunMathKit` SwiftPM-Paket + Tests (Port der Mathematik, TDD) + ins App-Target einbinden
 
-**Files:** Create `ios/Sources/SunMath.swift`, `ios/Tests/SunMathTests.swift`
+**Files:** Create `ios/SunMathKit/Package.swift`, `ios/SunMathKit/Sources/SunMathKit/SunMath.swift`, `ios/SunMathKit/Tests/SunMathKitTests/SunMathTests.swift`; Modify `ios/project.yml` (lokale Package-Abhängigkeit), Delete unbenutztes `ios/Tests/` + Test-Target aus `project.yml`.
+
+**Wichtig:** `SunMath` lebt in einem SwiftPM-Paket, damit es host-nativ mit `swift test` (ohne Simulator-Runtime) geprüft werden kann. Das App-Target hängt per XcodeGen-`packages` davon ab und nutzt `import SunMathKit`. Alle Typen/Funktionen sind `public`.
 
 **Interfaces:**
-- Produces (alle pur, `enum SunMath`):
+- Produces (alle pur + `public`, `public enum SunMath`):
   - `SunMath.position(date: Date, lat: Double, lng: Double) -> (azimuth: Double, altitude: Double)` (Radiant)
   - `SunMath.vector(azimuth: Double, altitude: Double) -> SIMD3<Double>`
   - `SunMath.rectCornersWorld(L:B:yawDeg:tiltDeg:tiltDirDeg:height:eye:front:) -> [SIMD3<Double>]`
@@ -196,14 +202,31 @@ git commit -m "feat(ios): XcodeGen-Gerüst, App baut im Simulator"
   - `SunMath.mastShadowLength(height: Double, altitude: Double) -> Double`
   - `SunMath.shadowMetrics(L:B:yawDeg:tiltDeg:tiltDirDeg:height:eye:front:azimuth:altitude:) -> (areaM2: Double, lengthM: Double, isNight: Bool)`
 
-- [ ] **Step 1: Failing tests schreiben** (`ios/Tests/SunMathTests.swift`)
+- [ ] **Step 0: `ios/SunMathKit/Package.swift` anlegen**
+
+```swift
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "SunMathKit",
+    platforms: [.iOS(.v17), .macOS(.v13)],
+    products: [.library(name: "SunMathKit", targets: ["SunMathKit"])],
+    targets: [
+        .target(name: "SunMathKit"),
+        .testTarget(name: "SunMathKitTests", dependencies: ["SunMathKit"]),
+    ]
+)
+```
+
+- [ ] **Step 1: Failing tests schreiben** (`ios/SunMathKit/Tests/SunMathKitTests/SunMathTests.swift`)
 
 Referenzen identisch zur Web-Version (`tests/shadow.test.mjs`).
 
 ```swift
 import XCTest
 import simd
-@testable import Schattenwerfer
+@testable import SunMathKit
 
 final class SunMathTests: XCTestCase {
     let lat = 50.11, lng = 8.68 // Frankfurt
@@ -274,19 +297,19 @@ final class SunMathTests: XCTestCase {
 
 - [ ] **Step 2: Tests ausführen → Fehlschlag (SunMath fehlt)**
 
-Run: `xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer -destination 'platform=iOS Simulator,name=iPhone 16' test`
-Expected: Build/Test schlägt fehl — `SunMath` unbekannt.
+Run: `cd ios/SunMathKit && swift test`
+Expected: Compile/Test schlägt fehl — `SunMath` unbekannt.
 
-- [ ] **Step 3: `ios/Sources/SunMath.swift` implementieren**
+- [ ] **Step 3: `ios/SunMathKit/Sources/SunMathKit/SunMath.swift` implementieren**
 
-Port von `src/sun-math.mjs` (gleiche Formeln/Konventionen):
+Port von `src/sun-math.mjs` (gleiche Formeln/Konventionen). **Alle Deklarationen `public`** (Enum + jede Funktion), sonst sieht der Test-/App-Code sie nicht:
 
 ```swift
 import Foundation
 import simd
 
-enum SunMath {
-    static let deg = Double.pi / 180
+public enum SunMath {
+    public static let deg = Double.pi / 180
 
     static func position(date: Date, lat: Double, lng: Double) -> (azimuth: Double, altitude: Double) {
         let dayMs = 86_400_000.0, j1970 = 2_440_588.0, j2000 = 2_451_545.0
@@ -368,14 +391,51 @@ enum SunMath {
 
 - [ ] **Step 4: Tests ausführen → grün**
 
-Run: `xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer -destination 'platform=iOS Simulator,name=iPhone 16' test`
-Expected: `** TEST SUCCEEDED **`, alle 7 Tests grün.
+Run: `cd ios/SunMathKit && swift test`
+Expected: alle 7 Tests grün („Test Suite 'All tests' passed"), Ausgabe ohne Warnungen.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Paket ins App-Target einbinden + altes Test-Target entfernen**
+
+In `ios/project.yml`: oberhalb von `targets:` einen `packages:`-Block ergänzen und die App-Abhängigkeit setzen; das ungenutzte `SchattenwerferTests`-Target und seinen Scheme-Eintrag entfernen, da iOS-Tests hier nicht lauffähig sind:
+
+```yaml
+packages:
+  SunMathKit:
+    path: SunMathKit
+targets:
+  Schattenwerfer:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - package: SunMathKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: it.ravensburg.schattenwerfer
+        INFOPLIST_FILE: Resources/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  Schattenwerfer:
+    build:
+      targets:
+        Schattenwerfer: all
+```
+Außerdem `ios/Tests/` (leeres altes XCTest-Verzeichnis) löschen.
+
+- [ ] **Step 6: Projekt neu generieren + App baut mit Paket**
+
+Run: `cd ios && xcodegen generate` danach (aus Repo-Root)
+`xcodebuild -project ios/Schattenwerfer.xcodeproj -target Schattenwerfer -sdk iphonesimulator26.5 -configuration Debug build`
+Expected: `** BUILD SUCCEEDED **` (App linkt `SunMathKit`).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add ios/Sources/SunMath.swift ios/Tests/SunMathTests.swift
-git commit -m "feat(ios): Sonnen-/Schatten-Mathematik portiert + getestet"
+git add ios/SunMathKit ios/project.yml
+git rm -r --cached ios/Tests 2>/dev/null; rm -rf ios/Tests
+git add -A ios/Tests 2>/dev/null
+git commit -m "feat(ios): Sonnen-/Schatten-Mathematik als SwiftPM-Paket + getestet"
 ```
 
 ---
@@ -391,7 +451,7 @@ git commit -m "feat(ios): Sonnen-/Schatten-Mathematik portiert + getestet"
 
 - [ ] **Step 1: `ParasolState.swift` implementieren**
 
-Anforderungen: Defaults `shape=.rect, length=4, width=2, area=7.1, yawDeg=0, tiltDeg=0, tiltDirDeg=0, height=2.4, useNow=true, lat=50.11, lng=8.68`. `effectiveDate`: bei `useNow==true` → `Date()`, sonst `date`. `sun()` ruft `SunMath.position(date: effectiveDate, lat:, lng:)`. `metrics()` ruft `SunMath.shadowMetrics(...)` mit `eye: 0` und `front: 0` (Position ist im AR egal — Fläche ist translationsinvariant; `eye`/`front` nur als Bezug, hier 0/0 ausreichend, Boden y=0). Wertebereiche siehe Global Constraints.
+Anforderungen: `import SunMathKit`. Defaults `shape=.rect, length=4, width=2, area=7.1, yawDeg=0, tiltDeg=0, tiltDirDeg=0, height=2.4, useNow=true, lat=50.11, lng=8.68`. `effectiveDate`: bei `useNow==true` → `Date()`, sonst `date`. `sun()` ruft `SunMath.position(date: effectiveDate, lat:, lng:)`. `metrics()` ruft `SunMath.shadowMetrics(...)` mit `eye: 0` und `front: 0` (Position ist im AR egal — Fläche ist translationsinvariant; `eye`/`front` nur als Bezug, hier 0/0 ausreichend, Boden y=0). Wertebereiche siehe Global Constraints.
 
 - [ ] **Step 2: `LocationProvider.swift` implementieren**
 
@@ -505,21 +565,10 @@ Anforderungen:
 - DatePicker (Datum + Uhrzeit) + Button „Jetzt" (`state.useNow = true`); jede Slider-Änderung aktualisiert `@Published` → Live-Update der Szene.
 - Klartext-Labels mit Live-Wertanzeige.
 
-- [ ] **Step 3: Build + Simulator-Smoke**
+- [ ] **Step 3: Build (nur Compile — Simulator-Laufzeit hier nicht möglich)**
 
-Run: `xcodebuild ... build`
-Expected: `** BUILD SUCCEEDED **`.
-Dann Simulator-Start zur Sichtprüfung des Sheets/UI:
-```bash
-xcrun simctl boot "iPhone 16" 2>/dev/null; \
-xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -derivedDataPath ios/DerivedData build && \
-xcrun simctl install booted ios/DerivedData/Build/Products/Debug-iphonesimulator/Schattenwerfer.app && \
-xcrun simctl launch booted it.ravensburg.schattenwerfer; sleep 3; \
-xcrun simctl io booted screenshot ios/_sheet.png
-```
-Expected: App startet ohne Crash; Screenshot `ios/_sheet.png` zeigt Sheet mit Reglern (AR-Bild ist im Simulator schwarz — erwartet). Danach `rm -f ios/_sheet.png`.
+Run: `xcodebuild -project ios/Schattenwerfer.xcodeproj -target Schattenwerfer -sdk iphonesimulator26.5 -configuration Debug build`
+Expected: `** BUILD SUCCEEDED **`. (App-Start/Screenshot im Simulator ist hier nicht möglich — keine iOS-26.5-Runtime; UI prüft der Nutzer am Gerät.)
 
 - [ ] **Step 4: Commit**
 
@@ -536,11 +585,10 @@ git commit -m "feat(ios): vollflächige AR-Ansicht + Bottom-Sheet-Bedienung"
 
 **Interfaces:** Consumes alle vorigen Tasks.
 
-- [ ] **Step 1: Volle Testsuite + Build grün**
+- [ ] **Step 1: Mathematik-Tests + App-Build grün**
 
-Run:
-`xcodebuild -project ios/Schattenwerfer.xcodeproj -scheme Schattenwerfer -destination 'platform=iOS Simulator,name=iPhone 16' test`
-Expected: `** TEST SUCCEEDED **`.
+Run: `cd ios/SunMathKit && swift test` → alle Tests grün.
+Run: `xcodebuild -project ios/Schattenwerfer.xcodeproj -target Schattenwerfer -sdk iphonesimulator26.5 -configuration Debug build` → `** BUILD SUCCEEDED **`.
 
 - [ ] **Step 2: `ios/README.md` mit Geräte-Anleitung schreiben**
 
