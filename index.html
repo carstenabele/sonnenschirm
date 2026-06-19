@@ -25,6 +25,9 @@
   html,body{height:100%;margin:0;background:#000;overflow:hidden;color:var(--text);font-family:var(--sans);-webkit-tap-highlight-color:transparent}
   #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#111;z-index:0}
   #scene{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+  /* Ebene zum Platzieren/Verschieben des Schirms (unter dem HUD bei z-index 5) */
+  #tapLayer{position:fixed;inset:0;z-index:3;pointer-events:auto;touch-action:none;cursor:grab}
+  #tapLayer.grabbing{cursor:grabbing}
 
   /* zentrales Fadenkreuz */
   #reticle{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;pointer-events:none;opacity:.5}
@@ -116,6 +119,7 @@
   <video id="cam" playsinline muted autoplay></video>
   <canvas id="scene"></canvas>
   <div id="reticle"></div>
+  <div id="tapLayer" aria-hidden="true"></div>
 
   <!-- HUD oben -->
   <div class="topbar">
@@ -239,6 +243,7 @@ const state = {
   shape: "rect",                // "round" | "rect"
   L: 4.0, B: 2.0,               // Rechteck-Länge/-Breite (m)
   yawDeg: 0,                    // Drehung der Längsachse
+  posX: 0, posZ: -4.0,          // Standort des Schirms auf dem Boden (Welt-XZ), Default 4 m Norden
   simDate: null,                // gewähltes Datum (YYYY-MM-DD) oder null = heute
   compassHeading: null,         // webkitCompassHeading, falls verfügbar
   screenAngle: 0,
@@ -292,7 +297,7 @@ scene.add(sunOrb);
 
 /* ---- Sonnenschirm: Mast + Pivot (für Neigung) + Schirmdach ---- */
 const parasol = new THREE.Group();
-parasol.position.set(0, -EYE, -FRONT); // auf dem Boden, Richtung Norden
+parasol.position.set(state.posX, -EYE, state.posZ); // auf dem Boden; per Tippen platzierbar
 scene.add(parasol);
 
 const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: .6, metalness: .3 });
@@ -370,10 +375,11 @@ function updateSun() {
   const sv = sunVector(azimuth, altitude);
   const v = new THREE.Vector3(sv.x, sv.y, sv.z);
 
-  // Licht: aus Sonnenrichtung auf den Schirm
+  // Licht: aus Sonnenrichtung auf den Schirm (Ziel folgt dem platzierten Standort)
   const dist = 30;
-  sunLight.position.copy(v).multiplyScalar(dist).add(new THREE.Vector3(0, -EYE, -FRONT));
-  sunLight.target.position.set(0, -EYE, -FRONT);
+  const anchor = new THREE.Vector3(state.posX, -EYE, state.posZ);
+  sunLight.position.copy(v).multiplyScalar(dist).add(anchor);
+  sunLight.target.position.copy(anchor);
   sunLight.intensity = altitude > 0 ? 2.2 : 0.0;
   sunOrb.visible = altitude > 0;
   sunOrb.position.copy(v).multiplyScalar(40);
@@ -531,6 +537,55 @@ function loop(t) {
 }
 
 /* -------------------------------------------------------------------------
+   5b) Schirm platzieren & verschieben (Tippen/Ziehen auf dem Boden)
+   ------------------------------------------------------------------------- */
+const raycaster = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), EYE); // Ebene y = -EYE
+const ndc = new THREE.Vector2();
+const hitPoint = new THREE.Vector3();
+let dragging = false;
+
+// Bildschirmpunkt -> Bodenkoordinate (Welt-XZ) via Raycast auf die Bodenebene.
+function groundFromScreen(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  camera.updateMatrixWorld();
+  raycaster.setFromCamera(ndc, camera);
+  if (!raycaster.ray.intersectPlane(groundPlane, hitPoint)) return null; // zeigt zum Himmel
+  let px = hitPoint.x, pz = hitPoint.z;
+  const d = Math.hypot(px, pz), maxD = 30;        // sehr ferne Treffer nahe Horizont begrenzen
+  if (d > maxD) { px = px / d * maxD; pz = pz / d * maxD; }
+  return { x: px, z: pz };
+}
+
+function moveParasolTo(p) {
+  state.posX = p.x; state.posZ = p.z;
+  parasol.position.set(p.x, -EYE, p.z);
+  updateSun();
+}
+
+function bindPlacement() {
+  const layer = $("tapLayer");
+  layer.addEventListener("pointerdown", (e) => {
+    const p = groundFromScreen(e.clientX, e.clientY);
+    if (!p) { toast("Ziele tiefer — auf den Boden tippen."); return; }
+    dragging = true;
+    layer.classList.add("grabbing");
+    try { layer.setPointerCapture(e.pointerId); } catch (_) {}
+    moveParasolTo(p);
+  });
+  layer.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const p = groundFromScreen(e.clientX, e.clientY);
+    if (p) moveParasolTo(p);
+  });
+  const end = () => { dragging = false; layer.classList.remove("grabbing"); };
+  layer.addEventListener("pointerup", end);
+  layer.addEventListener("pointercancel", end);
+}
+
+/* -------------------------------------------------------------------------
    6) UI-Verdrahtung
    ------------------------------------------------------------------------- */
 let toastTimer;
@@ -627,6 +682,7 @@ function bindSliders() {
   $("width").dispatchEvent(new Event("input"));
   $("yaw").dispatchEvent(new Event("input"));
   applyShapeVisibility();
+  bindPlacement();
 }
 
 /* -------------------------------------------------------------------------
@@ -682,6 +738,7 @@ async function start() {
   watchLocation();
   updateSun();
   requestAnimationFrame(loop);
+  toast("Tippe auf den Boden, um den Schirm zu setzen — dann ziehen zum Verschieben.");
   if (!orient.has) setTimeout(() => { if(!orient.has) toast("Keine Lagesensoren — drehe per Feinjustierung."); }, 1500);
 }
 
