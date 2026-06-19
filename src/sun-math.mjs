@@ -34,3 +34,70 @@ export function sunVector(azN, alt) {
     z: -Math.cos(azN) * ch,
   };
 }
+
+// 2D-Rotation in der x/z-Ebene um Winkel a (rad), positiv im UZS um +Y.
+function rotY(p, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
+}
+// Rotation um X-Achse um Winkel a (rad).
+function rotX(p, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c };
+}
+
+// Vier Welt-Eckpunkte des Dach-Rechtecks nach Yaw → Neigungsrichtung → Neigung.
+export function rectCornersWorld({ L, B, yawDeg, tiltDeg, tiltDirDeg, height, eye, front }) {
+  const yaw = yawDeg * DEG, dir = tiltDirDeg * DEG, tip = tiltDeg * DEG;
+  const hx = L / 2, hz = B / 2;
+  const local = [
+    { x:  hx, y: 0, z:  hz },
+    { x:  hx, y: 0, z: -hz },
+    { x: -hx, y: 0, z: -hz },
+    { x: -hx, y: 0, z:  hz },
+  ];
+  const topY = -eye + height;
+  return local.map((p) => {
+    // Reihenfolge: Yaw → Neigungsrichtung → Neigungswinkel
+    let q = rotY(p, yaw);
+    q = rotY(q, dir);
+    q = rotX(q, tip);
+    return { x: q.x, y: q.y + topY, z: q.z - front };
+  });
+}
+
+// Projektion eines Punktes entlang des Sonnenvektors auf die Bodenebene y = yGround.
+export function projectToGround(p, sunVec, yGround) {
+  const t = (p.y - yGround) / sunVec.y;
+  return { x: p.x - sunVec.x * t, z: p.z - sunVec.z * t };
+}
+
+// Fläche eines Polygons in der x/z-Ebene (Shoelace, immer ≥ 0).
+export function polygonArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p.x * q.z - q.x * p.z;
+  }
+  return Math.abs(a) / 2;
+}
+
+// Schattenlänge des Masts: Höhe / tan(Sonnenhöhe).
+export function mastShadowLength(height, altitudeRad) {
+  if (altitudeRad <= 0) return Infinity;
+  return height / Math.tan(altitudeRad);
+}
+
+// Numerische Schattenkennwerte des Dachs (Fläche + Mastlänge).
+export function shadowMetrics({ L, B, yawDeg, tiltDeg, tiltDirDeg, height, eye, front, azimuthRad, altitudeRad }) {
+  if (altitudeRad <= 0) return { areaM2: 0, lengthM: Infinity, isNight: true };
+  const sv = sunVector(azimuthRad, altitudeRad);
+  const yGround = -eye;
+  const corners = rectCornersWorld({ L, B, yawDeg, tiltDeg, tiltDirDeg, height, eye, front });
+  const ground = corners.map((c) => projectToGround(c, sv, yGround));
+  return {
+    areaM2: polygonArea(ground),
+    lengthM: mastShadowLength(height, altitudeRad),
+    isNight: false,
+  };
+}
