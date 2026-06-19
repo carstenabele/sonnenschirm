@@ -13,7 +13,7 @@
 - **Projektort:** Alles unter `ios/`. Web-App im Repo-Root bleibt unverändert.
 - **Projektgenerierung:** ausschließlich über `ios/project.yml` (XcodeGen). Kein handgepflegtes `.xcodeproj`. Nach jeder `project.yml`-Änderung neu generieren: `cd ios && xcodegen generate`.
 - **Bundle-ID:** `it.ravensburg.schattenwerfer`. Deployment-Target iOS 17.0.
-- **`SunMath` ist pur:** nur `Foundation`/`simd`, kein UIKit/SwiftUI/RealityKit. Vektoren als `SIMD3<Double>`. Winkel-Argumente in Grad, intern Radiant. Liegt im SwiftPM-Paket `ios/SunMathKit`.
+- **`SunMath` ist pur:** nur `Foundation`/`simd`, kein UIKit/SwiftUI/RealityKit. Vektoren als `SIMD3<Double>`. Winkel-Argumente in Grad, intern Radiant. Liegt im SwiftPM-Paket `ios/SunMathKit` (nur für `swift test`). **Das App-Target kompiliert dieselbe Quelle direkt mit** (project.yml `sources` enthält `SunMathKit/Sources/SunMathKit`), daher **KEIN `import SunMathKit`** im App-Code — `SunMath` ist im selben Modul direkt verfügbar.
 - **Weltachsen (RealityKit, .gravityAndHeading):** +X = Osten, +Y = oben, −Z = Norden (gleiche Konvention wie `sun-math.mjs`).
 - **Konstanten:** Schirmmaße L,B 1,5–6,0 m (Schritt 0,1); Yaw 0–359°; Masthöhe 1,6–3,2 m; Neigung 0–60°.
 - **Sprache:** UI-Texte + Commit-Messages Deutsch.
