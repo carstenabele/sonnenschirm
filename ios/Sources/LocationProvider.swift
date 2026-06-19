@@ -4,6 +4,7 @@ import Combine
 
 /// Provides device GPS coordinates via CoreLocation.
 /// Falls back to Frankfurt (50.11°N, 8.68°E) until the first location fix.
+@MainActor
 final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - Published
@@ -35,22 +36,27 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
 
     // MARK: - CLLocationManagerDelegate
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        let coord = location.coordinate
-        DispatchQueue.main.async { [weak self] in
-            self?.coordinate = (lat: coord.latitude, lng: coord.longitude)
+        let lat = location.coordinate.latitude
+        let lng = location.coordinate.longitude
+        Task { @MainActor [weak self] in
+            self?.coordinate = (lat: lat, lng: lng)
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Retain Frankfurt fallback; no user-visible error needed at this layer.
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         // Start location updates once the user grants permission.
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-            manager.startUpdatingLocation()
+        let status = manager.authorizationStatus
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if status == .authorizedWhenInUse || status == .authorizedAlways {
+                self.manager.startUpdatingLocation()
+            }
         }
     }
 }

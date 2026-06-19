@@ -27,6 +27,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: it.ravensburg.schattenwerfer
         INFOPLIST_FILE: Resources/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_INCLUDE_PATHS: "$(SOURCE_ROOT)/SunMathKit/build/$(CONFIGURATION)-$(PLATFORM_NAME)"
 schemes:
   Schattenwerfer:
     build:
