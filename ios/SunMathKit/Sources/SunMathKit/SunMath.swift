@@ -52,6 +52,42 @@ public enum SunMath {
         }
     }
 
+    /// World-space rim points of a round canopy (radius `radius`) at the mast
+    /// top, after tilt-direction and tilt. Yaw is irrelevant for a disc.
+    public static func roundRimWorld(radius: Double, tiltDeg: Double, tiltDirDeg: Double,
+                                     height: Double, eye: Double, front: Double, segments: Int) -> [SIMD3<Double>] {
+        let dir = tiltDirDeg * deg, tip = tiltDeg * deg
+        let topY = -eye + height
+        let n = max(3, segments)
+        return (0..<n).map { i in
+            let a = 2 * Double.pi * Double(i) / Double(n)
+            let local = SIMD3(radius * cos(a), 0, radius * sin(a))
+            var q = rotY(local, dir); q = rotX(q, tip)
+            return SIMD3(q.x, q.y + topY, q.z - front)
+        }
+    }
+
+    /// Projected ground outline (x,z) of the canopy's shadow for the given sun.
+    /// Returns an empty array at night (altitude ≤ 0). For round canopies the
+    /// radius is derived from `area`; `segments` controls the round resolution.
+    public static func shadowGroundOutline(isRound: Bool, L: Double, B: Double, area: Double,
+                                           yawDeg: Double, tiltDeg: Double, tiltDirDeg: Double,
+                                           height: Double, eye: Double, front: Double,
+                                           azimuth: Double, altitude: Double, segments: Int) -> [SIMD2<Double>] {
+        if altitude <= 0 { return [] }
+        let sv = vector(azimuth: azimuth, altitude: altitude)
+        let worldPts: [SIMD3<Double>]
+        if isRound {
+            let r = (area / Double.pi).squareRoot()
+            worldPts = roundRimWorld(radius: r, tiltDeg: tiltDeg, tiltDirDeg: tiltDirDeg,
+                                     height: height, eye: eye, front: front, segments: segments)
+        } else {
+            worldPts = rectCornersWorld(L: L, B: B, yawDeg: yawDeg, tiltDeg: tiltDeg,
+                                        tiltDirDeg: tiltDirDeg, height: height, eye: eye, front: front)
+        }
+        return worldPts.map { projectToGround($0, sun: sv, yGround: -eye) }
+    }
+
     public static func projectToGround(_ p: SIMD3<Double>, sun: SIMD3<Double>, yGround: Double) -> SIMD2<Double> {
         let t = (p.y - yGround) / sun.y
         return SIMD2(p.x - sun.x * t, p.z - sun.z * t)

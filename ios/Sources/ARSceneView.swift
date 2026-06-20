@@ -29,9 +29,6 @@ struct ARSceneView: UIViewRepresentable {
     /// Directional light intensity (lux) when the sun is above the horizon.
     private static let sunIntensity: Float = 8_000
 
-    /// Edge length of the occlusion ground plane (metres).
-    private static let groundSize: Float = 8
-
     // MARK: - UIViewRepresentable
 
     func makeCoordinator() -> Coordinator {
@@ -117,8 +114,10 @@ struct ARSceneView: UIViewRepresentable {
         private let parasol = ParasolEntity()
         /// Sun directional light. Child of `anchor`.
         private let sunLight = DirectionalLight()
-        /// Large occlusion plane that receives the shadow + shows the camera.
-        private var groundPlane: ModelEntity?
+        /// Flat, semi-transparent polygon drawn on the floor to show where the
+        /// shadow falls. Computed explicitly from `SunMath` (directionally
+        /// correct), independent of RealityKit's shadow pipeline.
+        private let shadowDecal = ModelEntity()
 
         /// Whether the anchor has been placed on a detected plane yet.
         private var isPlaced = false
@@ -150,15 +149,9 @@ struct ARSceneView: UIViewRepresentable {
             orientSunLight()
             anchor.addChild(sunLight)
 
-            // Occlusion ground plane that receives the directional shadow and
-            // shows the real camera image beneath the parasol.
-            let plane = ModelEntity(
-                mesh: .generatePlane(width: groundSize, depth: groundSize),
-                materials: [OcclusionMaterial()]
-            )
-            plane.position = SIMD3<Float>(0, 0, 0)
-            groundPlane = plane
-            anchor.addChild(plane)
+            // Explicit shadow polygon on the floor (sibling of the parasol).
+            anchor.addChild(shadowDecal)
+            updateShadowDecal()
 
             // Hide the whole anchor until placed so it doesn't float at origin.
             anchor.isEnabled = false
@@ -167,11 +160,64 @@ struct ARSceneView: UIViewRepresentable {
 
         // MARK: State synchronisation
 
-        /// Re-applies the current `ParasolState` to geometry and light.
+        /// Re-applies the current `ParasolState` to geometry, light and shadow.
         func applyState() {
             parasol.update(from: state)
             sunLight.light.intensity = Self.intensity(for: state)
             orientSunLight()
+            updateShadowDecal()
+        }
+
+        // MARK: Shadow decal
+
+        /// Smallest sun altitude (radians) for which we draw a shadow. Below a
+        /// few degrees the projected shadow is impractically long/unstable.
+        private static let minShadowAltitude = 3.0 * Double.pi / 180.0
+
+        /// Rebuilds the floor shadow polygon from the current sun + parasol.
+        private func updateShadowDecal() {
+            let s = state.sun()
+            guard s.altitude > Self.minShadowAltitude else {
+                shadowDecal.isEnabled = false
+                return
+            }
+            let isRound = state.shape == .round
+            let outline = SunMath.shadowGroundOutline(
+                isRound: isRound,
+                L: state.length, B: state.width, area: state.area,
+                yawDeg: state.yawDeg, tiltDeg: state.tiltDeg, tiltDirDeg: state.tiltDirDeg,
+                height: state.height, eye: 0, front: 0,
+                azimuth: s.azimuth, altitude: s.altitude,
+                segments: isRound ? 48 : 4
+            )
+            guard outline.count >= 3, let mesh = Self.makeShadowMesh(outline: outline) else {
+                shadowDecal.isEnabled = false
+                return
+            }
+            var material = UnlitMaterial()
+            material.color = .init(tint: .black)
+            material.blending = .transparent(opacity: .init(floatLiteral: 0.45))
+            shadowDecal.model = ModelComponent(mesh: mesh, materials: [material])
+            shadowDecal.isEnabled = true
+        }
+
+        /// Builds a flat, double-sided polygon mesh ~1 cm above the floor from
+        /// projected ground points (x,z). Triangle fan; both windings so it is
+        /// visible regardless of view angle.
+        private static func makeShadowMesh(outline: [SIMD2<Double>]) -> MeshResource? {
+            let y: Float = 0.012
+            let positions = outline.map { SIMD3<Float>(Float($0.x), y, Float($0.y)) }
+            let n = positions.count
+            guard n >= 3 else { return nil }
+            var indices: [UInt32] = []
+            for i in 1..<(n - 1) {
+                let a: UInt32 = 0, b = UInt32(i), c = UInt32(i + 1)
+                indices.append(contentsOf: [a, b, c, a, c, b])
+            }
+            var md = MeshDescriptor(name: "shadow")
+            md.positions = MeshBuffers.Positions(positions)
+            md.primitives = .triangles(indices)
+            return try? MeshResource.generate(from: [md])
         }
 
         /// Intensity is the configured value when the sun is up, else 0 (night).
