@@ -13,6 +13,26 @@ struct ContentView: View {
 
             // Subtle readout strip at the top
             ReadoutStrip(state: state)
+
+            // Reset button (re-aim & place again)
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        state.requestPlacementReset()
+                    } label: {
+                        Label("Neu platzieren", systemImage: "arrow.counterclockwise")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .padding(.trailing, 14)
+                    .padding(.top, 52)
+                }
+                Spacer()
+            }
         }
         .sheet(isPresented: .constant(true)) {
             ControlSheet(state: state)

@@ -2,6 +2,7 @@ import SwiftUI
 import RealityKit
 import ARKit
 import simd
+import Combine
 
 /// SwiftUI wrapper around an ARKit/RealityKit `ARView` for the Schattenwerfer
 /// app. It places the parasol on a detected horizontal plane, casts a
@@ -90,6 +91,7 @@ struct ARSceneView: UIViewRepresentable {
         // ParasolState changed: rebuild the parasol geometry and re-orient /
         // re-intensify the sun light to match the new sun position.
         context.coordinator.state = state
+        context.coordinator.syncResetIfNeeded()
         context.coordinator.applyState()
     }
 
@@ -118,6 +120,18 @@ struct ARSceneView: UIViewRepresentable {
         /// shadow falls. Computed explicitly from `SunMath` (directionally
         /// correct), independent of RealityKit's shadow pipeline.
         private let shadowDecal = ModelEntity()
+
+        /// Floor reticle (ring) at the screen-centre raycast hit — the aiming
+        /// indicator for clean placement. Its own anchor, independent of the
+        /// parasol (which may not be placed yet).
+        private let reticleAnchor = AnchorEntity(world: .zero)
+        private let reticle = ModelEntity()
+        /// Latest screen-centre floor hit (world position), or nil if none.
+        private var centerHit: SIMD3<Float>?
+        /// Per-frame update subscription (keeps the reticle on the floor).
+        private var frameSub: (any Cancellable)?
+        /// Last seen reset token, to detect reset requests in `updateUIView`.
+        private var lastResetToken = 0
 
         /// Whether the anchor has been placed on a detected plane yet.
         private var isPlaced = false
@@ -156,6 +170,45 @@ struct ARSceneView: UIViewRepresentable {
             // Hide the whole anchor until placed so it doesn't float at origin.
             anchor.isEnabled = false
             arView.scene.addAnchor(anchor)
+
+            // Floor reticle (aiming ring) on its own anchor.
+            if let ring = Self.makeRingMesh(innerR: 0.085, outerR: 0.12, segments: 48) {
+                var mat = UnlitMaterial()
+                mat.color = .init(tint: .white)
+                mat.blending = .transparent(opacity: .init(floatLiteral: 0.9))
+                reticle.model = ModelComponent(mesh: ring, materials: [mat])
+            }
+            reticleAnchor.addChild(reticle)
+            reticleAnchor.isEnabled = false
+            arView.scene.addAnchor(reticleAnchor)
+
+            // Keep the reticle glued to the screen-centre floor hit each frame.
+            frameSub = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] _ in
+                self?.updateReticle()
+            }
+        }
+
+        /// Raycasts from the screen centre each frame and parks the reticle on
+        /// the floor there, recording the hit for tap placement.
+        private func updateReticle() {
+            guard let arView else { return }
+            let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
+            let results = arView.raycast(from: center, allowing: .estimatedPlane, alignment: .horizontal)
+            if let t = results.first?.worldTransform {
+                let pos = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+                centerHit = pos
+                reticleAnchor.position = pos
+                reticleAnchor.isEnabled = true
+            } else {
+                centerHit = nil
+                reticleAnchor.isEnabled = false
+            }
+        }
+
+        /// Picks the parasol up so it can be re-placed (placement-only reset).
+        func resetPlacement() {
+            isPlaced = false
+            anchor.isEnabled = false
         }
 
         // MARK: State synchronisation
@@ -220,6 +273,29 @@ struct ARSceneView: UIViewRepresentable {
             return try? MeshResource.generate(from: [md])
         }
 
+        /// Builds a flat ring (annulus) mesh in the XZ plane, double-sided.
+        private static func makeRingMesh(innerR: Float, outerR: Float, segments: Int) -> MeshResource? {
+            let y: Float = 0.006
+            var positions: [SIMD3<Float>] = []
+            for i in 0..<segments {
+                let a = 2 * Float.pi * Float(i) / Float(segments)
+                let c = cos(a), s = sin(a)
+                positions.append(SIMD3(outerR * c, y, outerR * s))
+                positions.append(SIMD3(innerR * c, y, innerR * s))
+            }
+            var indices: [UInt32] = []
+            for i in 0..<segments {
+                let o0 = UInt32(2 * i), i0 = UInt32(2 * i + 1)
+                let o1 = UInt32(2 * ((i + 1) % segments)), i1 = UInt32(2 * ((i + 1) % segments) + 1)
+                indices.append(contentsOf: [o0, i0, o1, o1, i0, i1])   // front
+                indices.append(contentsOf: [o0, o1, i0, o1, i1, i0])   // back
+            }
+            var md = MeshDescriptor(name: "reticle")
+            md.positions = MeshBuffers.Positions(positions)
+            md.primitives = .triangles(indices)
+            return try? MeshResource.generate(from: [md])
+        }
+
         /// Intensity is the configured value when the sun is up, else 0 (night).
         private static func intensity(for state: ParasolState) -> Float {
             let altitude = state.sun().altitude
@@ -274,10 +350,20 @@ struct ARSceneView: UIViewRepresentable {
 
         // MARK: Gestures
 
+        /// Applies a placement reset when the state's token advances.
+        func syncResetIfNeeded() {
+            if state.placementResetToken != lastResetToken {
+                lastResetToken = state.placementResetToken
+                resetPlacement()
+            }
+        }
+
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let arView else { return }
-            let point = gesture.location(in: arView)
-            if let pos = worldPosition(at: point) {
+            // Place at the centre reticle (the aiming indicator) for clean,
+            // predictable placement; fall back to the tapped point if needed.
+            if let pos = centerHit {
+                move(to: pos)
+            } else if let arView, let pos = worldPosition(at: gesture.location(in: arView)) {
                 move(to: pos)
             }
         }

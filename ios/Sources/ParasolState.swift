@@ -49,6 +49,15 @@ final class ParasolState: ObservableObject {
     /// Longitude in decimal degrees (Frankfurt default)
     @Published var lng: Double = 8.68
 
+    /// Incremented to request un-placing the parasol (re-aim & place again).
+    /// `ARSceneView` observes changes and resets only the placement.
+    @Published var placementResetToken: Int = 0
+
+    /// Requests that the parasol be picked up so it can be re-placed.
+    func requestPlacementReset() {
+        placementResetToken += 1
+    }
+
     // MARK: - Derived
 
     /// The date used for sun calculations
