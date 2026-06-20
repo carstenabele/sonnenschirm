@@ -15,6 +15,7 @@ struct ControlSheet: View {
                     Picker("Form", selection: $state.shape) {
                         Text("Rund").tag(ParasolState.Shape.round)
                         Text("Rechteck").tag(ParasolState.Shape.rect)
+                        Text("Ampel").tag(ParasolState.Shape.cantilever)
                     }
                     .pickerStyle(.segmented)
                 }
@@ -23,7 +24,16 @@ struct ControlSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Abmessungen")
                         .font(.headline)
-                    if state.shape == .rect {
+                    if state.shape == .round {
+                        LabeledSlider(
+                            label: "Schirmfläche",
+                            value: $state.area,
+                            range: 1.8...28.3,
+                            unit: "m²",
+                            format: "%.1f"
+                        )
+                    } else {
+                        // Rechteck und Ampelschirm: rechteckiges Dach (L×B) + Drehung
                         LabeledSlider(
                             label: "Länge",
                             value: $state.length,
@@ -39,20 +49,21 @@ struct ControlSheet: View {
                             format: "%.1f"
                         )
                         LabeledSlider(
-                            label: "Drehung",
+                            label: state.shape == .cantilever ? "Ausrichtung" : "Drehung",
                             value: $state.yawDeg,
                             range: 0...359,
                             unit: "°",
                             format: "%.0f"
                         )
-                    } else {
-                        LabeledSlider(
-                            label: "Schirmfläche",
-                            value: $state.area,
-                            range: 1.8...28.3,
-                            unit: "m²",
-                            format: "%.1f"
-                        )
+                        if state.shape == .cantilever {
+                            LabeledSlider(
+                                label: "Ausladung",
+                                value: $state.reach,
+                                range: 0.5...3.0,
+                                unit: "m",
+                                format: "%.1f"
+                            )
+                        }
                     }
                 }
 

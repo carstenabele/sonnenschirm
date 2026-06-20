@@ -70,8 +70,8 @@ final class SunMathTests: XCTestCase {
     func testShadowOutlineRectAnchorCase() {
         // Same anchor case as area test: zenith → outline is the 4×2 footprint, area ~8.
         let outline = SunMath.shadowGroundOutline(
-            isRound: false, L: 4, B: 2, area: 0,
-            yawDeg: 90, tiltDeg: 0, tiltDirDeg: 0,
+            shape: .rect, L: 4, B: 2, area: 0,
+            yawDeg: 90, tiltDeg: 0, tiltDirDeg: 0, reach: 0,
             height: 2.4, eye: 0, front: 0,
             azimuth: 0, altitude: .pi / 2, segments: 4)
         XCTAssertEqual(outline.count, 4)
@@ -82,8 +82,8 @@ final class SunMathTests: XCTestCase {
         // Round, zenith → outline is the disc projected straight down: area ≈ π r² = `area`.
         let area = 7.1
         let outline = SunMath.shadowGroundOutline(
-            isRound: true, L: 0, B: 0, area: area,
-            yawDeg: 0, tiltDeg: 0, tiltDirDeg: 0,
+            shape: .round, L: 0, B: 0, area: area,
+            yawDeg: 0, tiltDeg: 0, tiltDirDeg: 0, reach: 0,
             height: 2.4, eye: 0, front: 0,
             azimuth: 0, altitude: .pi / 2, segments: 48)
         XCTAssertEqual(outline.count, 48)
@@ -92,10 +92,25 @@ final class SunMathTests: XCTestCase {
 
     func testShadowOutlineNightEmpty() {
         let outline = SunMath.shadowGroundOutline(
-            isRound: false, L: 4, B: 2, area: 0,
-            yawDeg: 0, tiltDeg: 0, tiltDirDeg: 0,
+            shape: .rect, L: 4, B: 2, area: 0,
+            yawDeg: 0, tiltDeg: 0, tiltDirDeg: 0, reach: 0,
             height: 2.4, eye: 0, front: 0,
             azimuth: 0, altitude: -0.2, segments: 4)
         XCTAssertTrue(outline.isEmpty)
+    }
+
+    func testCantileverAreaInvariantAndOffset() {
+        // Cantilever at zenith: reach is a pure translation → area stays L×B = 8,
+        // and the footprint centroid is offset by ~reach along +X (yaw 0).
+        let reach = 1.5
+        let outline = SunMath.shadowGroundOutline(
+            shape: .cantilever, L: 4, B: 2, area: 0,
+            yawDeg: 0, tiltDeg: 0, tiltDirDeg: 0, reach: reach,
+            height: 2.4, eye: 0, front: 0,
+            azimuth: 0, altitude: .pi / 2, segments: 4)
+        XCTAssertEqual(outline.count, 4)
+        XCTAssertEqual(SunMath.polygonArea(outline), 8, accuracy: 8 * 0.05)
+        let cx = outline.map(\.x).reduce(0, +) / Double(outline.count)
+        XCTAssertEqual(cx, reach, accuracy: 0.05)
     }
 }

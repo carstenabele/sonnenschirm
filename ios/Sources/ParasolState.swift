@@ -7,7 +7,7 @@ final class ParasolState: ObservableObject {
     // MARK: - Shape
 
     enum Shape: CaseIterable, Identifiable, Hashable {
-        case round, rect
+        case round, rect, cantilever
 
         var id: Self { self }
     }
@@ -36,6 +36,10 @@ final class ParasolState: ObservableObject {
 
     /// Mast height in metres (1.6–3.2 m)
     @Published var height: Double = 2.4
+
+    /// Cantilever arm reach: horizontal offset mast→canopy centre (0.5–3.0 m).
+    /// Only used for the `.cantilever` (Ampelschirm) shape.
+    @Published var reach: Double = 1.5
 
     /// Manually selected date/time (used when useNow == false)
     @Published var date: Date = Date()

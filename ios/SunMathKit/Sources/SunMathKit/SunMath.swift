@@ -4,6 +4,9 @@ import simd
 public enum SunMath {
     public static let deg = Double.pi / 180
 
+    /// Canopy/mount kind affecting the projected footprint geometry.
+    public enum Canopy: Sendable { case round, rect, cantilever }
+
     public static func position(date: Date, lat: Double, lng: Double) -> (azimuth: Double, altitude: Double) {
         let dayMs = 86_400_000.0, j1970 = 2_440_588.0, j2000 = 2_451_545.0
         let e = 23.4397 * deg
@@ -67,23 +70,48 @@ public enum SunMath {
         }
     }
 
+    /// World-space corners of a cantilever (Ampelschirm) canopy: a rectangular
+    /// canopy offset horizontally from the mast by `reach` along the +X axis,
+    /// then rotated as a whole by yaw. Tilt pivots about the canopy centre, so
+    /// it matches the cantilever 3D model: yaw · (arm + tiltDir·tilt · corner).
+    public static func cantileverCornersWorld(L: Double, B: Double, yawDeg: Double, tiltDeg: Double,
+                                              tiltDirDeg: Double, reach: Double,
+                                              height: Double, eye: Double, front: Double) -> [SIMD3<Double>] {
+        let yaw = yawDeg * deg, dir = tiltDirDeg * deg, tip = tiltDeg * deg
+        let hx = L / 2, hz = B / 2
+        let topY = -eye + height
+        let local = [SIMD3(hx,0,hz), SIMD3(hx,0,-hz), SIMD3(-hx,0,-hz), SIMD3(-hx,0,hz)]
+        return local.map { p in
+            var q = rotX(p, tip); q = rotY(q, dir)        // tilt about canopy centre
+            q = SIMD3(q.x + reach, q.y, q.z)              // arm offset along +X
+            q = rotY(q, yaw)                              // swing whole assembly about mast
+            return SIMD3(q.x, q.y + topY, q.z - front)
+        }
+    }
+
     /// Projected ground outline (x,z) of the canopy's shadow for the given sun.
     /// Returns an empty array at night (altitude ≤ 0). For round canopies the
     /// radius is derived from `area`; `segments` controls the round resolution.
-    public static func shadowGroundOutline(isRound: Bool, L: Double, B: Double, area: Double,
-                                           yawDeg: Double, tiltDeg: Double, tiltDirDeg: Double,
+    /// `reach` only applies to `.cantilever`.
+    public static func shadowGroundOutline(shape: Canopy, L: Double, B: Double, area: Double,
+                                           yawDeg: Double, tiltDeg: Double, tiltDirDeg: Double, reach: Double,
                                            height: Double, eye: Double, front: Double,
                                            azimuth: Double, altitude: Double, segments: Int) -> [SIMD2<Double>] {
         if altitude <= 0 { return [] }
         let sv = vector(azimuth: azimuth, altitude: altitude)
         let worldPts: [SIMD3<Double>]
-        if isRound {
+        switch shape {
+        case .round:
             let r = (area / Double.pi).squareRoot()
             worldPts = roundRimWorld(radius: r, tiltDeg: tiltDeg, tiltDirDeg: tiltDirDeg,
                                      height: height, eye: eye, front: front, segments: segments)
-        } else {
+        case .rect:
             worldPts = rectCornersWorld(L: L, B: B, yawDeg: yawDeg, tiltDeg: tiltDeg,
                                         tiltDirDeg: tiltDirDeg, height: height, eye: eye, front: front)
+        case .cantilever:
+            worldPts = cantileverCornersWorld(L: L, B: B, yawDeg: yawDeg, tiltDeg: tiltDeg,
+                                              tiltDirDeg: tiltDirDeg, reach: reach,
+                                              height: height, eye: eye, front: front)
         }
         return worldPts.map { projectToGround($0, sun: sv, yGround: -eye) }
     }

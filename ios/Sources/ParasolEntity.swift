@@ -26,6 +26,15 @@ final class ParasolEntity: Entity {
     /// Canopy for a round parasol.
     private var roundCanopy: ModelEntity?
 
+    /// Horizontal cantilever arm (Ampelschirm), child of the pivot.
+    private var armEntity: ModelEntity?
+
+    /// Holder at the arm end carrying the cantilever canopy's tilt.
+    private var cantileverHolder: Entity?
+
+    /// Canopy for a cantilever parasol, child of `cantileverHolder`.
+    private var cantileverCanopy: ModelEntity?
+
     /// Pivot entity placed at the mast top; receives the yaw/tilt orientation.
     private var pivotEntity: Entity?
 
@@ -66,7 +75,7 @@ final class ParasolEntity: Entity {
         let pivot = getOrCreatePivot()
         pivot.position = SIMD3<Float>(0, h, 0)
 
-        // Apply transform order: Yaw(+Y) · TiltDir(+Y) · Tilt(+X)
+        // Transform parts: Yaw(+Y), TiltDir(+Y), Tilt(+X)
         let yawRad = Float(state.yawDeg) * .pi / 180
         let tiltDirRad = Float(state.tiltDirDeg) * .pi / 180
         let tiltRad = Float(state.tiltDeg) * .pi / 180
@@ -75,11 +84,11 @@ final class ParasolEntity: Entity {
         let qTiltDir = simd_quatf(angle: tiltDirRad, axis: SIMD3<Float>(0, 1, 0))
         let qTilt = simd_quatf(angle: tiltRad, axis: SIMD3<Float>(1, 0, 0))
 
-        pivot.orientation = qYaw * qTiltDir * qTilt
-
         // ── Canopies ─────────────────────────────────────────────────────────
         switch state.shape {
         case .rect:
+            // Centre-mast: whole canopy rotates about the mast top.
+            pivot.orientation = qYaw * qTiltDir * qTilt
             let rect = getOrCreateRectCanopy()
             let boxMesh = MeshResource.generateBox(
                 size: SIMD3<Float>(Float(state.length), 0.08, Float(state.width))
@@ -88,8 +97,10 @@ final class ParasolEntity: Entity {
             applyGroundingShadow(to: rect)
             rect.isEnabled = true
             roundCanopy?.isEnabled = false
+            setCantileverEnabled(false)
 
         case .round:
+            pivot.orientation = qYaw * qTiltDir * qTilt
             let round = getOrCreateRoundCanopy()
             let radius = Float(sqrt(state.area / .pi))
             let cylinderMesh = makeCylinder(height: 0.1, radius: radius)
@@ -97,7 +108,44 @@ final class ParasolEntity: Entity {
             applyGroundingShadow(to: round)
             round.isEnabled = true
             rectCanopy?.isEnabled = false
+            setCantileverEnabled(false)
+
+        case .cantilever:
+            // Side mast + arm: yaw swings the whole assembly; the canopy tilts
+            // about its own centre at the arm end.
+            pivot.orientation = qYaw
+            let reach = Float(state.reach)
+
+            let arm = getOrCreateArm()
+            let armMesh = makeCylinder(height: reach, radius: 0.025)
+            arm.model = ModelComponent(mesh: armMesh, materials: [Self.mastMaterial])
+            applyGroundingShadow(to: arm)
+            // Cylinder runs along +Y; lay it along +X and centre it on the arm.
+            arm.orientation = simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(0, 0, 1))
+            arm.position = SIMD3<Float>(reach / 2, 0, 0)
+            arm.isEnabled = true
+
+            let holder = getOrCreateCantileverHolder()
+            holder.position = SIMD3<Float>(reach, 0, 0)
+            holder.orientation = qTiltDir * qTilt
+
+            let canopy = getOrCreateCantileverCanopy()
+            let boxMesh = MeshResource.generateBox(
+                size: SIMD3<Float>(Float(state.length), 0.08, Float(state.width))
+            )
+            canopy.model = ModelComponent(mesh: boxMesh, materials: [Self.canopyMaterial])
+            applyGroundingShadow(to: canopy)
+            canopy.isEnabled = true
+
+            rectCanopy?.isEnabled = false
+            roundCanopy?.isEnabled = false
         }
+    }
+
+    /// Enables/disables the cantilever-only sub-entities in one call.
+    private func setCantileverEnabled(_ on: Bool) {
+        armEntity?.isEnabled = on
+        cantileverHolder?.isEnabled = on
     }
 
     // MARK: - Mesh helpers
@@ -153,6 +201,30 @@ final class ParasolEntity: Entity {
         let e = ModelEntity()
         roundCanopy = e
         pivotEntity?.addChild(e)
+        return e
+    }
+
+    private func getOrCreateArm() -> ModelEntity {
+        if let existing = armEntity { return existing }
+        let e = ModelEntity()
+        armEntity = e
+        pivotEntity?.addChild(e)
+        return e
+    }
+
+    private func getOrCreateCantileverHolder() -> Entity {
+        if let existing = cantileverHolder { return existing }
+        let e = Entity()
+        cantileverHolder = e
+        pivotEntity?.addChild(e)
+        return e
+    }
+
+    private func getOrCreateCantileverCanopy() -> ModelEntity {
+        if let existing = cantileverCanopy { return existing }
+        let e = ModelEntity()
+        cantileverCanopy = e
+        cantileverHolder?.addChild(e)
         return e
     }
 }

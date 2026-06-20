@@ -234,14 +234,20 @@ struct ARSceneView: UIViewRepresentable {
                 shadowDecal.isEnabled = false
                 return
             }
-            let isRound = state.shape == .round
+            let canopy: SunMath.Canopy
+            switch state.shape {
+            case .round: canopy = .round
+            case .rect: canopy = .rect
+            case .cantilever: canopy = .cantilever
+            }
             let outline = SunMath.shadowGroundOutline(
-                isRound: isRound,
+                shape: canopy,
                 L: state.length, B: state.width, area: state.area,
                 yawDeg: state.yawDeg, tiltDeg: state.tiltDeg, tiltDirDeg: state.tiltDirDeg,
+                reach: state.reach,
                 height: state.height, eye: 0, front: 0,
                 azimuth: s.azimuth, altitude: s.altitude,
-                segments: isRound ? 48 : 4
+                segments: canopy == .round ? 48 : 4
             )
             guard outline.count >= 3, let mesh = Self.makeShadowMesh(outline: outline) else {
                 shadowDecal.isEnabled = false
